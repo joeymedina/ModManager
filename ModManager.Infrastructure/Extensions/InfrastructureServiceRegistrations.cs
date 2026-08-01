@@ -1,15 +1,23 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using ModManager.Application.Interfaces;
+using ModManager.Infrastructure.Services.WickedWhims;
 
-namespace ModManager.Infrastructure.Extensions
+namespace ModManager.Infrastructure.Extensions;
+
+public static class InfrastructureServiceRegistrations
 {
-    public static class InfrastructureServiceRegistrations
+    /// <summary>
+    /// Registers infrastructure-layer services.
+    /// </summary>
+    public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
-        extension(IServiceCollection services)
-        {
-            public IServiceCollection AddInfrastructureServices()
-            {
-                return services;
-            }
-        }
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddSingleton<WickedWhimsVersionDetector>();
+        services.AddSingleton<WickedWhimsReleaseClient>();
+        services.AddSingleton<WickedWhimsArchiveInstaller>();
+        services.AddSingleton<IModUpdateStrategy, WickedWhimsUpdateStrategy>();
+
+        return services;
     }
 }
