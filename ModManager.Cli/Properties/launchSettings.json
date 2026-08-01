@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "ModManager.Cli": {
+      "commandName": "Project",
+      "commandLineArgs": "--check --folder \"C:\\Users\\Joey\\Desktop\\WW Test\""
+    }
+  }
+}
