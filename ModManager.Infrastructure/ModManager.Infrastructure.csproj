@@ -11,4 +11,8 @@
     <ProjectReference Include="..\ModManager.Application\ModManager.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Models\" />
+  </ItemGroup>
+
 </Project>

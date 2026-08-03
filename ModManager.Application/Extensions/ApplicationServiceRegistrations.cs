@@ -14,6 +14,7 @@ public static class ApplicationServiceRegistrations
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddSingleton<IModUpdateOrchestrator, ModUpdateOrchestrator>();
+        services.AddSingleton<IModsFolderUseCase, ModsFolderUseCase>();
         return services;
     }
 }

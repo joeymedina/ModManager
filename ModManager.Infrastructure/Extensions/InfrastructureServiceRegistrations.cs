@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using ModManager.Application.Interfaces;
+using ModManager.Infrastructure.Services;
 using ModManager.Infrastructure.Services.WickedWhims;
 
 namespace ModManager.Infrastructure.Extensions;
@@ -17,6 +18,12 @@ public static class InfrastructureServiceRegistrations
         services.AddSingleton<WickedWhimsReleaseClient>();
         services.AddSingleton<WickedWhimsArchiveInstaller>();
         services.AddSingleton<IModUpdateStrategy, WickedWhimsUpdateStrategy>();
+
+        services.AddSingleton<ModsFolderPathService>();
+        services.AddSingleton<ModsManifestService>();
+        services.AddSingleton<ModsDiscoveryService>();
+        services.AddSingleton<ModsFileOperationsService>();
+        services.AddSingleton<IModsFolderRepository, ModsFolderService>();
 
         return services;
     }
