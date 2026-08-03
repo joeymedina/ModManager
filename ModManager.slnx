@@ -1,6 +1,7 @@
 <Solution>
-  <Project Path="ModManager.Cli/ModManager.Cli.csproj" />
-  <Project Path="ModManager.Tests/ModManager.Tests.csproj" />
   <Project Path="ModManager.Application/ModManager.Application.csproj" />
+  <Project Path="ModManager.Cli/ModManager.Cli.csproj" />
   <Project Path="ModManager.Infrastructure/ModManager.Infrastructure.csproj" />
+  <Project Path="ModManager.Tests/ModManager.Tests.csproj" />
+  <Project Path="ModManager.Ui/ModManager.Ui.csproj" Id="58b39700-232e-4fec-98a1-b9bc31d7bb69" />
 </Solution>
