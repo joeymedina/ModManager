@@ -5,5 +5,16 @@ namespace ModManager.Ui.ViewModels;
 public partial class MainViewModel : ViewModelBase
 {
     [ObservableProperty]
-    public partial string Greeting { get; set; } = "Welcome to Avalonia!";
+    private ViewModelBase _currentPage;
+
+    public MainViewModel()
+        : this(new ModPageViewModel())
+    {
+    }
+
+    public MainViewModel(ModPageViewModel modPage)
+    {
+        ArgumentNullException.ThrowIfNull(modPage);
+        CurrentPage = modPage;
+    }
 }
