@@ -6,112 +6,180 @@
              mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
              x:Class="ModManager.Ui.Views.BrowsePageView"
              x:DataType="vm:BrowsePageViewModel"
-             DataContextChanged="OnDataContextChanged"
-             Loaded="OnLoaded"
-             Unloaded="OnUnloaded">
+             DataContextChanged="OnDataContextChanged">
   <Design.DataContext>
     <vm:BrowsePageViewModel />
   </Design.DataContext>
+
+  <UserControl.Styles>
+    <Style Selector="Border.tabHeader">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.tabHeader.selected">
+      <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundBaseMediumLowBrush}" />
+    </Style>
+    <Style Selector="Button.toolbarIcon">
+      <Setter Property="CornerRadius" Value="17" />
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
 
   <DockPanel Margin="16">
     <StackPanel DockPanel.Dock="Top" Spacing="10" Margin="0,0,0,12">
       <TextBlock Text="Browse" FontSize="22" FontWeight="SemiBold" />
 
+      <StackPanel Orientation="Horizontal" Spacing="4">
+        <ItemsControl ItemsSource="{Binding Tabs}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" Spacing="4" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:BrowserTabViewModel">
+              <Border Padding="12,7"
+                      CornerRadius="8,8,0,0"
+                      Classes="tabHeader"
+                      Classes.selected="{Binding IsSelected}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="{Binding Title}"
+                          Click="OnTabHeaderClick"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          Padding="2"
+                          MaxWidth="140" />
+                  <Button Content="✕"
+                          Click="OnTabCloseClick"
+                          Width="18"
+                          Height="18"
+                          CornerRadius="9"
+                          Padding="0"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          ToolTip.Tip="Close tab" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Content="+"
+                Command="{Binding NewTabCommand}"
+                Classes="toolbarIcon"
+                Width="26"
+                Height="26"
+                ToolTip.Tip="New tab" />
+      </StackPanel>
+
       <Border Padding="6"
               Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
-              CornerRadius="8">
-        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto">
+              CornerRadius="20">
+        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
           <Button Grid.Column="0"
                   Content="←"
-                  Width="36"
-                  Height="34"
-                  Padding="0"
-                  HorizontalContentAlignment="Center"
-                  VerticalContentAlignment="Center"
+                  Classes="toolbarIcon"
                   Click="OnBackClick"
-                  IsEnabled="{Binding CanGoBack}"
+                  IsEnabled="{Binding SelectedTab.CanGoBack}"
                   ToolTip.Tip="Back" />
           <Button Grid.Column="1"
                   Content="→"
-                  Width="36"
-                  Height="34"
-                  Padding="0"
-                  HorizontalContentAlignment="Center"
-                  VerticalContentAlignment="Center"
+                  Classes="toolbarIcon"
                   Click="OnForwardClick"
-                  IsEnabled="{Binding CanGoForward}"
+                  IsEnabled="{Binding SelectedTab.CanGoForward}"
                   ToolTip.Tip="Forward" />
           <Button Grid.Column="2"
                   Content="↻"
-                  Width="36"
-                  Height="34"
-                  Padding="0"
-                  HorizontalContentAlignment="Center"
-                  VerticalContentAlignment="Center"
+                  Classes="toolbarIcon"
                   Click="OnRefreshClick"
                   ToolTip.Tip="Refresh" />
           <TextBox Grid.Column="3"
                    Margin="6,0"
                    MinHeight="34"
+                   CornerRadius="17"
                    VerticalContentAlignment="Center"
                    PlaceholderText="Search or enter a web address"
-                   Text="{Binding AddressText}"
+                   Text="{Binding SelectedTab.AddressText}"
                    KeyDown="OnAddressKeyDown" />
           <Button Grid.Column="4"
                   Content="Go"
                   MinWidth="52"
                   Height="34"
+                  CornerRadius="17"
                   HorizontalContentAlignment="Center"
                   VerticalContentAlignment="Center"
-                  Command="{Binding NavigateCommand}" />
+                  Command="{Binding SelectedTab.NavigateCommand}" />
           <Button Grid.Column="5"
                   Content="Home"
                   Margin="6,0,0,0"
                   MinWidth="60"
                   Height="34"
+                  CornerRadius="17"
                   HorizontalContentAlignment="Center"
                   VerticalContentAlignment="Center"
-                  Command="{Binding GoHomeCommand}" />
+                  Command="{Binding SelectedTab.GoHomeCommand}" />
           <Button Grid.Column="6"
-                  Content="Cancel"
+                  Content="{Binding SelectedTab.BlockedAds, StringFormat='🛡 {0}'}"
                   Margin="6,0,0,0"
-                  MinWidth="64"
+                  MinWidth="48"
                   Height="34"
+                  CornerRadius="17"
                   HorizontalContentAlignment="Center"
                   VerticalContentAlignment="Center"
-                  Command="{Binding CancelDownloadCommand}"
-                  IsVisible="{Binding IsDownloading}" />
+                  ToolTip.Tip="{Binding SelectedTab.BlockedAdsTooltip}" />
+          <Button Grid.Column="7"
+                  Content="{Binding Downloads.Count, StringFormat='⬇ {0}'}"
+                  Margin="6,0,0,0"
+                  MinWidth="48"
+                  Height="34"
+                  CornerRadius="17"
+                  HorizontalContentAlignment="Center"
+                  VerticalContentAlignment="Center"
+                  ToolTip.Tip="Downloads">
+            <Button.Flyout>
+              <Flyout Placement="BottomEdgeAlignedRight">
+                <ItemsControl ItemsSource="{Binding Downloads}" MaxWidth="320" MaxHeight="360">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DownloadItemViewModel">
+                      <StackPanel Spacing="2" Margin="0,0,0,10">
+                        <TextBlock Text="{Binding FileName}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                        <ProgressBar Minimum="0"
+                                     Maximum="1"
+                                     Value="{Binding Progress}"
+                                     Height="4"
+                                     IsVisible="{Binding State, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:DownloadItemState.InProgress}}" />
+                        <TextBlock Text="{Binding State}" Opacity="0.65" FontSize="11" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Button Content="Cancel"
+                                  Command="{Binding CancelCommand}"
+                                  IsVisible="{Binding State, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:DownloadItemState.InProgress}}"
+                                  HorizontalAlignment="Left"
+                                  FontSize="11"
+                                  Padding="8,2" />
+                          <Button Content="Open Folder"
+                                  Command="{Binding OpenContainingFolderCommand}"
+                                  IsVisible="{Binding State, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:DownloadItemState.Completed}}"
+                                  HorizontalAlignment="Left"
+                                  FontSize="11"
+                                  Padding="8,2" />
+                        </StackPanel>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Flyout>
+            </Button.Flyout>
+          </Button>
         </Grid>
       </Border>
 
-      <Grid ColumnDefinitions="*,Auto">
-        <StackPanel Spacing="4">
-          <TextBlock Text="{Binding StatusMessage}"
-                     Opacity="0.75"
-                     TextWrapping="Wrap" />
-          <ProgressBar Minimum="0"
-                       Maximum="1"
-                       Value="{Binding DownloadProgress}"
-                       Height="4"
-                       IsVisible="{Binding IsDownloading}" />
-        </StackPanel>
-        <TextBlock Grid.Column="1"
-                   Text="{Binding LastDownloadPath, StringFormat='Saved: {0}'}"
-                   Opacity="0.6"
-                   TextWrapping="Wrap"
-                   MaxWidth="280"
-                   IsVisible="{Binding LastDownloadPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-      </Grid>
-      <TextBlock Text="{Binding BlockedAds, StringFormat='Ads blocked: {0}'}"
-                 Opacity="0.65"
-                 ToolTip.Tip="{Binding BlockedAdsTooltip}" />
+      <TextBlock Text="{Binding SelectedTab.StatusMessage}"
+                 Opacity="0.75"
+                 TextWrapping="Wrap" />
     </StackPanel>
 
-    <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
-            BorderThickness="1"
-            CornerRadius="6"
-            ClipToBounds="True">
-      <Decorator x:Name="BrowserHost" />
-    </Border>
+    <Panel x:Name="TabHost" />
   </DockPanel>
 </UserControl>

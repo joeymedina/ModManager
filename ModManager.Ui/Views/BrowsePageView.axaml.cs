@@ -1,26 +1,20 @@
+using System.Collections.Specialized;
+using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using System.Net;
-using ModManager.Ui.Services.Browser;
 using ModManager.Ui.ViewModels;
 
 namespace ModManager.Ui.Views;
 
 public partial class BrowsePageView : UserControl
 {
+    private readonly Dictionary<BrowserTabViewModel, BrowserTabView> _tabViews = new();
     private BrowsePageViewModel? _subscribedViewModel;
-    private bool _hasLoadedInitialPage;
-    private readonly IBrowsePageBrowser _browser;
 
     public BrowsePageView()
     {
         InitializeComponent();
-        _browser = new AvaloniaBrowsePageBrowser(() => ViewModel);
-        _browser.NavigationStarted += OnBrowserNavigationStarted;
-        _browser.NavigationCompleted += OnBrowserNavigationCompleted;
-        _browser.AdBlocked += OnBrowserAdBlocked;
-        BrowserHost.Child = _browser.View;
     }
 
     private BrowsePageViewModel? ViewModel => DataContext as BrowsePageViewModel;
@@ -29,59 +23,96 @@ public partial class BrowsePageView : UserControl
     {
         if (_subscribedViewModel is not null)
         {
-            _subscribedViewModel.NavigationRequested -= OnNavigationRequested;
-            _subscribedViewModel.BrowserDownloadCancellationRequested -= OnBrowserDownloadCancellationRequested;
-            _subscribedViewModel.CookiesRequested -= OnCookiesRequested;
+            _subscribedViewModel.Tabs.CollectionChanged -= OnTabsCollectionChanged;
+            _subscribedViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _subscribedViewModel = null;
         }
+
+        ClearTabViews();
 
         if (DataContext is BrowsePageViewModel viewModel)
         {
             _subscribedViewModel = viewModel;
-            _subscribedViewModel.NavigationRequested += OnNavigationRequested;
-            _subscribedViewModel.BrowserDownloadCancellationRequested += OnBrowserDownloadCancellationRequested;
-            _subscribedViewModel.CookiesRequested += OnCookiesRequested;
+            viewModel.Tabs.CollectionChanged += OnTabsCollectionChanged;
+            viewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+            foreach (BrowserTabViewModel tab in viewModel.Tabs)
+            {
+                AddTabView(tab);
+            }
+
+            UpdateSelectedTabVisibility();
         }
     }
 
-    private void OnLoaded(object? sender, RoutedEventArgs e)
+    private void OnTabsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (_hasLoadedInitialPage || ViewModel is null)
+        if (e.OldItems is not null)
         {
-            return;
+            foreach (BrowserTabViewModel tab in e.OldItems)
+            {
+                RemoveTabView(tab);
+            }
         }
 
-        _hasLoadedInitialPage = true;
-        _browser.Navigate(BrowsePageViewModel.DefaultHome);
+        if (e.NewItems is not null)
+        {
+            foreach (BrowserTabViewModel tab in e.NewItems)
+            {
+                AddTabView(tab);
+            }
+        }
     }
 
-    private void OnUnloaded(object? sender, RoutedEventArgs e)
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-
-        _browser.Dispose();
+        if (e.PropertyName == nameof(BrowsePageViewModel.SelectedTab))
+        {
+            UpdateSelectedTabVisibility();
+        }
     }
 
-    private void OnNavigationRequested(object? sender, Uri uri)
+    private void AddTabView(BrowserTabViewModel tab)
     {
-        _browser.Navigate(uri);
+        BrowserTabView view = new() { DataContext = tab, IsVisible = false };
+        _tabViews[tab] = view;
+        TabHost.Children.Add(view);
+        UpdateSelectedTabVisibility();
     }
 
-    private void OnBackClick(object? sender, RoutedEventArgs e)
+    private void RemoveTabView(BrowserTabViewModel tab)
     {
-        _browser.GoBack();
-        SyncNavigationButtons();
+        if (_tabViews.Remove(tab, out BrowserTabView? view))
+        {
+            TabHost.Children.Remove(view);
+        }
     }
 
-    private void OnForwardClick(object? sender, RoutedEventArgs e)
+    private void ClearTabViews()
     {
-        _browser.GoForward();
-        SyncNavigationButtons();
+        TabHost.Children.Clear();
+        _tabViews.Clear();
     }
 
-    private void OnRefreshClick(object? sender, RoutedEventArgs e)
+    private void UpdateSelectedTabVisibility()
     {
-        _browser.Refresh();
+        BrowserTabViewModel? selected = ViewModel?.SelectedTab;
+        foreach (KeyValuePair<BrowserTabViewModel, BrowserTabView> pair in _tabViews)
+        {
+            pair.Value.IsVisible = ReferenceEquals(pair.Key, selected);
+        }
     }
+
+    private BrowserTabView? SelectedTabView =>
+        ViewModel?.SelectedTab is { } tab && _tabViews.TryGetValue(tab, out BrowserTabView? view)
+            ? view
+            : null;
+
+    private void OnBackClick(object? sender, RoutedEventArgs e) => SelectedTabView?.GoBack();
+
+    private void OnForwardClick(object? sender, RoutedEventArgs e) => SelectedTabView?.GoForward();
+
+    private void OnRefreshClick(object? sender, RoutedEventArgs e) => SelectedTabView?.Refresh();
 
     private void OnAddressKeyDown(object? sender, KeyEventArgs e)
     {
@@ -90,42 +121,23 @@ public partial class BrowsePageView : UserControl
             return;
         }
 
-        ViewModel?.NavigateCommand.Execute(null);
+        ViewModel?.SelectedTab?.NavigateCommand.Execute(null);
         e.Handled = true;
     }
 
-    private void OnBrowserNavigationStarted()
+    private void OnTabHeaderClick(object? sender, RoutedEventArgs e)
     {
-        ViewModel?.OnNavigationStarted();
-    }
-
-    private void OnBrowserNavigationCompleted(Uri? uri, bool isSuccess)
-    {
-        if (ViewModel is null || ViewModel.IsDownloading)
+        if (sender is Control { DataContext: BrowserTabViewModel tab })
         {
-            return;
+            ViewModel?.SelectTabCommand.Execute(tab);
         }
-
-        ViewModel.OnNavigationCompleted(uri, isSuccess);
-        SyncNavigationButtons();
     }
 
-    private void OnBrowserDownloadCancellationRequested()
+    private void OnTabCloseClick(object? sender, RoutedEventArgs e)
     {
-        _browser.CancelDownload();
-    }
-
-    private Task<IReadOnlyList<Cookie>> OnCookiesRequested() => _browser.GetCookiesAsync();
-
-    private void OnBrowserAdBlocked(string url)
-    {
-        ViewModel?.OnAdBlocked(url);
-    }
-
-    private void SyncNavigationButtons()
-    {
-        ViewModel?.UpdateNavigationState(
-            _browser.CanGoBack,
-            _browser.CanGoForward);
+        if (sender is Control { DataContext: BrowserTabViewModel tab })
+        {
+            tab.CloseCommand.Execute(null);
+        }
     }
 }

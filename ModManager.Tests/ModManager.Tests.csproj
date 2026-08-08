@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ModManager.Application\ModManager.Application.csproj" />
     <ProjectReference Include="..\ModManager.Infrastructure\ModManager.Infrastructure.csproj" />
+    <ProjectReference Include="..\ModManager.Ui\ModManager.Ui.csproj" />
   </ItemGroup>
 
 </Project>

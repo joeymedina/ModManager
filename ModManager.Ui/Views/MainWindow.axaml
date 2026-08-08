@@ -47,6 +47,6 @@
       </DockPanel>
     </Border>
 
-    <ContentControl Grid.Column="1" Content="{Binding CurrentPage}" />
+    <Panel Grid.Column="1" x:Name="PageHost" />
   </Grid>
 </Window>

@@ -12,8 +12,23 @@ namespace ModManager.Ui.Services.Browser;
 [SupportedOSPlatform("windows")]
 public sealed class WindowsNativeWebViewPlatformBridge : INativeWebViewPlatformBridge
 {
+    // Only the contexts EasyList-style rules actually target. Filtering
+    // CoreWebView2WebResourceContext.All routes every request (including the
+    // main document, fonts, websockets, etc.) through managed-code matching
+    // on every navigation, which is the dominant cause of sluggish page loads.
+    internal static readonly CoreWebView2WebResourceContext[] AdBlockResourceContexts =
+    [
+        CoreWebView2WebResourceContext.Image,
+        CoreWebView2WebResourceContext.Stylesheet,
+        CoreWebView2WebResourceContext.Media,
+        CoreWebView2WebResourceContext.Script,
+        CoreWebView2WebResourceContext.XmlHttpRequest,
+        CoreWebView2WebResourceContext.Fetch,
+        CoreWebView2WebResourceContext.Other,
+    ];
+
     private readonly AdBlockService _adBlockService;
-    private readonly Func<BrowsePageViewModel?> _getViewModel;
+    private readonly Func<BrowserTabViewModel?> _getViewModel;
     private readonly Action<string> _onAdBlocked;
     private NativeWebView? _browser;
     private CoreWebView2? _coreWebView;
@@ -21,7 +36,7 @@ public sealed class WindowsNativeWebViewPlatformBridge : INativeWebViewPlatformB
 
     public WindowsNativeWebViewPlatformBridge(
         AdBlockService adBlockService,
-        Func<BrowsePageViewModel?> getViewModel,
+        Func<BrowserTabViewModel?> getViewModel,
         Action<string> onAdBlocked)
     {
         _adBlockService = adBlockService;
@@ -90,7 +105,11 @@ public sealed class WindowsNativeWebViewPlatformBridge : INativeWebViewPlatformB
             binder: null,
             args: [nativeCore],
             culture: null)!;
-        _coreWebView.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+        foreach (CoreWebView2WebResourceContext context in AdBlockResourceContexts)
+        {
+            _coreWebView.AddWebResourceRequestedFilter("*", context);
+        }
+
         _coreWebView.WebResourceRequested += OnWebResourceRequested;
         _coreWebView.DownloadStarting += OnDownloadStarting;
     }
@@ -159,7 +178,7 @@ public sealed class WindowsNativeWebViewPlatformBridge : INativeWebViewPlatformB
             return;
         }
 
-        BrowsePageViewModel? viewModel = _getViewModel();
+        BrowserTabViewModel? viewModel = _getViewModel();
         if (viewModel is null)
         {
             return;

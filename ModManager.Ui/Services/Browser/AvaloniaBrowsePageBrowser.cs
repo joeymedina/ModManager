@@ -10,7 +10,7 @@ public sealed class AvaloniaBrowsePageBrowser : IBrowsePageBrowser
     private readonly AdBlockService _adBlockService = new();
     private readonly INativeWebViewPlatformBridge _platformBridge;
 
-    public AvaloniaBrowsePageBrowser(Func<BrowsePageViewModel?> getViewModel)
+    public AvaloniaBrowsePageBrowser(Func<BrowserTabViewModel?> getViewModel)
     {
         _browser.NavigationStarted += OnNavigationStarted;
         _browser.NavigationCompleted += OnNavigationCompleted;
@@ -67,7 +67,7 @@ public sealed class AvaloniaBrowsePageBrowser : IBrowsePageBrowser
         NavigationCompleted?.Invoke(_browser.Source, e.IsSuccess);
     }
 
-    private INativeWebViewPlatformBridge CreatePlatformBridge(Func<BrowsePageViewModel?> getViewModel)
+    private INativeWebViewPlatformBridge CreatePlatformBridge(Func<BrowserTabViewModel?> getViewModel)
     {
         if (OperatingSystem.IsWindows())
         {
