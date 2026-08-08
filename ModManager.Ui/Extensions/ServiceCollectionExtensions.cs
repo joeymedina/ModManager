@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using ModManager.Ui.Services;
 using ModManager.Ui.ViewModels;
 
 namespace ModManager.Ui.Extensions;
@@ -9,7 +10,10 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.AddTransient<ModPageViewModel>();
+        services.AddSingleton<BrowserDownloadService>();
+        services.AddTransient<ModsPageViewModel>();
+        services.AddTransient<UpdatesPageViewModel>();
+        services.AddTransient<BrowsePageViewModel>();
         services.AddTransient<MainViewModel>();
         return services;
     }

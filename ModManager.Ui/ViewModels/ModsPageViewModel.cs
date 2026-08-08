@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ModManager.Application.Interfaces;
@@ -6,7 +6,7 @@ using ModManager.Application.Models;
 
 namespace ModManager.Ui.ViewModels;
 
-public partial class ModPageViewModel : ViewModelBase
+public partial class ModsPageViewModel : ViewModelBase
 {
     private readonly IModsFolderUseCase _modsFolderUseCase;
 
@@ -29,12 +29,12 @@ public partial class ModPageViewModel : ViewModelBase
     [ObservableProperty]
     private ManagedModViewModel? _selectedMod;
 
-    public ModPageViewModel()
+    public ModsPageViewModel()
         : this(new DesignTimeModsFolderUseCase())
     {
     }
 
-    public ModPageViewModel(IModsFolderUseCase modsFolderUseCase)
+    public ModsPageViewModel(IModsFolderUseCase modsFolderUseCase)
     {
         _modsFolderUseCase = modsFolderUseCase;
         UpdateLayoutPaths();

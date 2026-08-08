@@ -15,14 +15,22 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Controls.WebView" Version="12.0.1" />
+    <PackageReference Include="CefGlue.Avalonia.ARM64" Version="120.6099.211" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
-    <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.3">
-      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
-      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
-    </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="DistillNET" Version="1.6.6" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2957.106" GeneratePathProperty="true" ExcludeAssets="all" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Microsoft.Web.WebView2.Core">
+      <HintPath>$(PkgMicrosoft_Web_WebView2)/lib_manual/netcoreapp3.0/Microsoft.Web.WebView2.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>

@@ -6,7 +6,7 @@ namespace ModManager.Ui.ViewModels;
 
 public partial class ManagedModViewModel : ViewModelBase
 {
-    private readonly ModPageViewModel _owner;
+    private readonly ModsPageViewModel _owner;
 
     [ObservableProperty]
     private string _modId = string.Empty;
@@ -35,7 +35,7 @@ public partial class ManagedModViewModel : ViewModelBase
     [ObservableProperty]
     private bool _canDisable;
 
-    public ManagedModViewModel(ModPageViewModel owner, ManagedMod mod)
+    public ManagedModViewModel(ModsPageViewModel owner, ManagedMod mod)
     {
         _owner = owner;
         Apply(mod);

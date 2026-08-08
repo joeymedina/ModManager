@@ -1,0 +1,117 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             x:Class="ModManager.Ui.Views.BrowsePageView"
+             x:DataType="vm:BrowsePageViewModel"
+             DataContextChanged="OnDataContextChanged"
+             Loaded="OnLoaded"
+             Unloaded="OnUnloaded">
+  <Design.DataContext>
+    <vm:BrowsePageViewModel />
+  </Design.DataContext>
+
+  <DockPanel Margin="16">
+    <StackPanel DockPanel.Dock="Top" Spacing="10" Margin="0,0,0,12">
+      <TextBlock Text="Browse" FontSize="22" FontWeight="SemiBold" />
+
+      <Border Padding="6"
+              Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+              CornerRadius="8">
+        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto">
+          <Button Grid.Column="0"
+                  Content="←"
+                  Width="36"
+                  Height="34"
+                  Padding="0"
+                  HorizontalContentAlignment="Center"
+                  VerticalContentAlignment="Center"
+                  Click="OnBackClick"
+                  IsEnabled="{Binding CanGoBack}"
+                  ToolTip.Tip="Back" />
+          <Button Grid.Column="1"
+                  Content="→"
+                  Width="36"
+                  Height="34"
+                  Padding="0"
+                  HorizontalContentAlignment="Center"
+                  VerticalContentAlignment="Center"
+                  Click="OnForwardClick"
+                  IsEnabled="{Binding CanGoForward}"
+                  ToolTip.Tip="Forward" />
+          <Button Grid.Column="2"
+                  Content="↻"
+                  Width="36"
+                  Height="34"
+                  Padding="0"
+                  HorizontalContentAlignment="Center"
+                  VerticalContentAlignment="Center"
+                  Click="OnRefreshClick"
+                  ToolTip.Tip="Refresh" />
+          <TextBox Grid.Column="3"
+                   Margin="6,0"
+                   MinHeight="34"
+                   VerticalContentAlignment="Center"
+                   PlaceholderText="Search or enter a web address"
+                   Text="{Binding AddressText}"
+                   KeyDown="OnAddressKeyDown" />
+          <Button Grid.Column="4"
+                  Content="Go"
+                  MinWidth="52"
+                  Height="34"
+                  HorizontalContentAlignment="Center"
+                  VerticalContentAlignment="Center"
+                  Command="{Binding NavigateCommand}" />
+          <Button Grid.Column="5"
+                  Content="Home"
+                  Margin="6,0,0,0"
+                  MinWidth="60"
+                  Height="34"
+                  HorizontalContentAlignment="Center"
+                  VerticalContentAlignment="Center"
+                  Command="{Binding GoHomeCommand}" />
+          <Button Grid.Column="6"
+                  Content="Cancel"
+                  Margin="6,0,0,0"
+                  MinWidth="64"
+                  Height="34"
+                  HorizontalContentAlignment="Center"
+                  VerticalContentAlignment="Center"
+                  Command="{Binding CancelDownloadCommand}"
+                  IsVisible="{Binding IsDownloading}" />
+        </Grid>
+      </Border>
+
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="4">
+          <TextBlock Text="{Binding StatusMessage}"
+                     Opacity="0.75"
+                     TextWrapping="Wrap" />
+          <ProgressBar Minimum="0"
+                       Maximum="1"
+                       Value="{Binding DownloadProgress}"
+                       Height="4"
+                       IsVisible="{Binding IsDownloading}" />
+        </StackPanel>
+        <TextBlock Grid.Column="1"
+                   Text="{Binding LastDownloadPath, StringFormat='Saved: {0}'}"
+                   Opacity="0.6"
+                   TextWrapping="Wrap"
+                   MaxWidth="280"
+                   IsVisible="{Binding LastDownloadPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      </Grid>
+      <TextBlock Text="{Binding BlockedAds, StringFormat='Ads blocked: {0}'}"
+                 Opacity="0.65"
+                 ToolTip.Tip="{Binding BlockedAdsTooltip}" />
+    </StackPanel>
+
+    <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+            BorderThickness="1"
+            CornerRadius="6"
+            ClipToBounds="True">
+      <Decorator x:Name="BrowserHost" />
+    </Border>
+  </DockPanel>
+</UserControl>

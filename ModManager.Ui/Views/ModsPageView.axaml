@@ -4,17 +4,17 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:ModManager.Ui.ViewModels"
              mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
-             x:Class="ModManager.Ui.Views.ModPage"
-             x:DataType="vm:ModPageViewModel">
+             x:Class="ModManager.Ui.Views.ModsPageView"
+             x:DataType="vm:ModsPageViewModel">
   <Design.DataContext>
-    <vm:ModPageViewModel />
+    <vm:ModsPageViewModel />
   </Design.DataContext>
 
   <DockPanel Margin="16">
     <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,12">
       <TextBlock Text="Mods Folder" FontSize="22" FontWeight="SemiBold" />
 
-      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+      <Grid ColumnDefinitions="Auto,*,Auto">
         <TextBlock Grid.Column="0" Text="Path" VerticalAlignment="Center" />
         <TextBox Grid.Column="1"
                  PlaceholderText="Mods folder path"
@@ -33,7 +33,7 @@
                  TextWrapping="Wrap" />
     </StackPanel>
 
-    <Grid ColumnDefinitions="2*,*" ColumnSpacing="12">
+    <Grid ColumnDefinitions="2*,*">
       <Border Grid.Column="0"
               BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
               BorderThickness="1"
