@@ -25,7 +25,7 @@ public partial class ModsPageViewModel : ViewModelBase
     [ObservableProperty]
     private string _modsFolderPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-        "Mods");
+        "Electronic Arts\\The Sims 4\\Mods");
 
     [ObservableProperty]
     private string _disabledModsFolderPath = string.Empty;

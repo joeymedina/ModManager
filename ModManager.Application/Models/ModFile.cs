@@ -5,4 +5,7 @@ public sealed record ModFile(
     ModFileState State,
     long SizeBytes,
     DateTime ModifiedUtc,
-    bool IsConflicted = false);
+    bool IsConflicted = false,
+    string? DisplayName = null,
+    string? GroupId = null,
+    string? InstallId = null);

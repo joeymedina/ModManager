@@ -16,13 +16,14 @@ public static class InfrastructureServiceRegistrations
 
         services.AddSingleton<WickedWhimsVersionDetector>();
         services.AddSingleton<WickedWhimsReleaseClient>();
-        services.AddSingleton<WickedWhimsArchiveInstaller>();
         services.AddSingleton<IModUpdateStrategy, WickedWhimsUpdateStrategy>();
 
         services.AddSingleton<ModsFolderPathService>();
         services.AddSingleton<ModsDiscoveryService>();
         services.AddSingleton<ModsFileOperationsService>();
+        services.AddSingleton<ModsManifestService>();
         services.AddSingleton<IModsFolderRepository, ModsFolderService>();
+        services.AddSingleton<IArchiveInstallService, ArchiveInstallService>();
 
         return services;
     }
