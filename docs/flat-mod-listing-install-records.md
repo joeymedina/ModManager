@@ -183,6 +183,26 @@ the Mods root will not load. Cheap, and users hit it constantly.
 
 ## Phase 3 — Install pipeline + records
 
+Decisions taken with the user before starting:
+- `ArchiveInstallService` gets an `IArchiveInstallService` interface (matches
+  `IModsFolderRepository`'s precedent over `ModsDiscoveryService`'s bare-singleton one,
+  since both the Mods page and the browser wiring call it and both want a mockable seam).
+- `Install`/`Preview` return a result type (`ArchiveInstallResult` — success/error, no
+  throw) instead of throwing, consistent with `ModFileFailure`'s non-throwing bulk-op
+  style. Covers bad archives, non-zip (`.rar`/`.7z`), and extraction errors.
+- `modFolderName` is a **sanitized display name** (illegal filesystem chars stripped),
+  de-duped against an existing folder with a numeric suffix (`Foo`, `Foo (2)`, ...) —
+  never a silent overwrite.
+- The "Install to Mods" prompt hooks **both** `BrowserTabViewModel.DownloadAsync` and the
+  WebView-native `OnBrowserDownloadUpdated` completion path. The spec originally named
+  only `DownloadAsync`, but that path is the direct-link fallback — most real
+  browser-initiated downloads complete through `OnBrowserDownloadUpdated`, so wiring only
+  the first would leave most downloads without an install prompt.
+- Bug (b) below ("updating a disabled mod silently re-enables it") is framing for a new
+  requirement, not a live regression: the current CLI-only `WickedWhimsUpdateStrategy` has
+  no disabled-root concept at all today, so there's nothing to "undo" — `ArchiveInstallService`
+  just needs to build that awareness in from the start.
+
 ### Manifest (deferred from phase 1)
 
 Reintroduce `ModsManifestService` here — the install record is its first writer. Per
@@ -211,8 +231,18 @@ InstallRecord(InstallId, Source{Provider, ModPageUrl, DownloadUrl}, Version?,
 
 ### `ArchiveInstallService` (new, Infrastructure)
 
-Replaces `WickedWhimsArchiveInstaller` (delete it — its path-traversal guard is worth
-keeping and carrying over). Two methods:
+Replaces `WickedWhimsArchiveInstaller` (delete it — its path-traversal guard, the
+`Path.GetFullPath` + prefix-check in `InstallArchive`, is worth keeping and carrying
+over). Registered via a new `IArchiveInstallService` interface (`AddSingleton<IArchiveInstallService, ArchiveInstallService>()`
+alongside the `ModsFolder*` block). Two methods, both returning a result type instead of
+throwing:
+
+```
+ArchiveInstallResult<T>(bool Success, T? Value, string? Error)
+```
+
+so a bad archive, a non-zip (`.rar`/`.7z`), or an extraction failure surfaces as
+`Error` for the UI to show inline, not an exception the caller has to catch.
 
 **`Preview(archivePath)`** — this is the answer to "what about non-mod files in the
 archive". Returns one row per entry, classified:
@@ -227,16 +257,19 @@ an `Optional/` folder installs conflicting variants and breaks the game. It cann
 decided automatically, so the preview makes it a one-click user decision, defaulting to
 the safe subset. The same screen is reused for phase 4 adoption.
 
-**`Install(archivePath, selection, layout, modFolderName)`**
+**`Install(archivePath, selection, layout, displayName)`**
+- `displayName` is sanitized into a filesystem-safe folder name (illegal chars stripped);
+  if `Mods/<name>` already exists, de-dupe with a numeric suffix (`Foo`, `Foo (2)`, ...)
+  rather than overwriting whatever's already there.
 - Extracts selected entries under `Mods/<modFolderName>/` — one folder per mod, which is
   what makes phase 2's folder view meaningful for anything we install.
 - Any `.ts4script` that would land deeper than one level is **flattened to the mod folder
   root**, since the game won't load it otherwise. Record the remapped path.
 - Hashes each written file; returns an `InstallRecord`.
 - Bare `.package` / `.ts4script` downloads (no archive) install as a single file.
-- Non-zip archives (`.rar`, `.7z`) fail with "extract manually, then use Install from
-  file" — `System.IO.Compression` is zip-only. Mark with a `ponytail:` comment naming
-  SharpCompress as the upgrade path.
+- Non-zip archives (`.rar`, `.7z`) return `ArchiveInstallResult.Error` = "extract manually,
+  then use Install from file" — `System.IO.Compression` is zip-only. Mark with a
+  `ponytail:` comment naming SharpCompress as the upgrade path.
 
 Non-mod entries are **not** extracted anywhere; they are recorded in `SkippedEntries` and
 the UI points at `SourceArchivePath` for the readme. (If we later want them on disk,
@@ -256,8 +289,11 @@ extracting to `%APPDATA%/ModManager/extras/<InstallId>/` is a small addition.)
 
 ### Wiring
 
-- `BrowserTabViewModel.DownloadAsync`: after `MarkCompleted`, offer "Install to Mods" →
-  preview → install.
+- `BrowserTabViewModel`: offer "Install to Mods" → preview → install after **both**
+  `MarkCompleted` call sites — `DownloadAsync` (the direct-link fallback) and
+  `OnBrowserDownloadUpdated` (the WebView-native path, where most real browser-initiated
+  downloads actually complete). Wiring only `DownloadAsync` would leave most downloads
+  without an install prompt.
 - Mods page: "Install from file" action for archives already in `~/Downloads`.
 - Register `ArchiveInstallService` in `InfrastructureServiceRegistrations` alongside the
   existing `ModsFolder*` singletons.
@@ -292,4 +328,5 @@ extracting to `%APPDATA%/ModManager/extras/<InstallId>/` is a small addition.)
   expected.
 - CLI regression: `dotnet run --project ModManager/ModManager.Cli -- --check` must still
   work unchanged after phase 1.
-- Branch `feature/flat-mod-listing`, PR into `main`.
+- Phases 1–2 shipped via `feature/flat-mod-listing` (merged). Phase 3 branches fresh off
+  `main` as `feature/install-pipeline`, PR into `main`.
