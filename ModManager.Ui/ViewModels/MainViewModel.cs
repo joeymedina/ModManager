@@ -5,6 +5,8 @@ namespace ModManager.Ui.ViewModels;
 
 public partial class MainViewModel : ViewModelBase
 {
+    private readonly ModsPageViewModel _modsPage;
+
     [ObservableProperty]
     private ViewModelBase _currentPage;
 
@@ -27,6 +29,8 @@ public partial class MainViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(updatesPage);
         ArgumentNullException.ThrowIfNull(browsePage);
 
+        _modsPage = modsPage;
+
         NavigationItems =
         [
             new NavigationItemViewModel("Mods", modsPage),
@@ -36,6 +40,14 @@ public partial class MainViewModel : ViewModelBase
 
         SelectedNavigationItem = NavigationItems[0];
         CurrentPage = SelectedNavigationItem.Page;
+
+        browsePage.InstallRequested += OnInstallRequested;
+    }
+
+    private void OnInstallRequested(string filePath)
+    {
+        SelectedNavigationItem = NavigationItems[0];
+        _modsPage.BeginInstallFromFile(filePath);
     }
 
     partial void OnSelectedNavigationItemChanged(NavigationItemViewModel? value)

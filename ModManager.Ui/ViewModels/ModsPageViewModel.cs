@@ -9,6 +9,7 @@ namespace ModManager.Ui.ViewModels;
 public partial class ModsPageViewModel : ViewModelBase
 {
     private readonly IModsFolderUseCase _modsFolderUseCase;
+    private readonly IArchiveInstallService _archiveInstallService;
     private List<ModFileViewModel> _allFiles = [];
 
     public ObservableCollection<ModFileViewModel> Files { get; } = [];
@@ -51,17 +52,46 @@ public partial class ModsPageViewModel : ViewModelBase
     [ObservableProperty]
     private string _deleteConfirmationMessage = string.Empty;
 
+    public ObservableCollection<ArchiveEntryPreviewViewModel> ArchivePreviewEntries { get; } = [];
+
+    [ObservableProperty]
+    private bool _isInstallPanelVisible;
+
+    [ObservableProperty]
+    private string _archivePathToInstall = string.Empty;
+
+    [ObservableProperty]
+    private string _installDisplayName = string.Empty;
+
+    [ObservableProperty]
+    private bool _hasArchivePreview;
+
+    [ObservableProperty]
+    private string _installStatusMessage = string.Empty;
+
     public ModsPageViewModel()
-        : this(new DesignTimeModsFolderUseCase())
+        : this(new DesignTimeModsFolderUseCase(), new DesignTimeArchiveInstallService())
     {
     }
 
-    public ModsPageViewModel(IModsFolderUseCase modsFolderUseCase)
+    public ModsPageViewModel(IModsFolderUseCase modsFolderUseCase, IArchiveInstallService archiveInstallService)
     {
         _modsFolderUseCase = modsFolderUseCase;
+        _archiveInstallService = archiveInstallService;
         SelectedFiles.CollectionChanged += (_, _) => UpdateDetails();
         SelectedTreeNodes.CollectionChanged += (_, _) => SyncSelectedFilesFromTree();
         UpdateLayoutPaths();
+    }
+
+    /// <summary>
+    /// Opens the install panel pre-filled with a downloaded archive's path and runs its preview,
+    /// so the browser's "Install to Mods" prompt lands the user straight at the selection screen.
+    /// </summary>
+    public void BeginInstallFromFile(string archivePath)
+    {
+        ArchivePathToInstall = archivePath;
+        IsInstallPanelVisible = true;
+        _ = PreviewInstallAsync();
     }
 
     [RelayCommand]
@@ -131,6 +161,143 @@ public partial class ModsPageViewModel : ViewModelBase
         await RunBulkActionAsync(
             "Deleting", "Deleted",
             (root, paths, ct) => _modsFolderUseCase.DeleteAsync(root, paths, ct));
+    }
+
+    [RelayCommand]
+    private void RequestInstallFromFile()
+    {
+        IsInstallPanelVisible = !IsInstallPanelVisible;
+        if (!IsInstallPanelVisible)
+        {
+            ResetInstallPanel();
+        }
+    }
+
+    [RelayCommand]
+    private async Task PreviewInstallAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ArchivePathToInstall))
+        {
+            InstallStatusMessage = "Enter a file path first.";
+            return;
+        }
+
+        IsBusy = true;
+        HasArchivePreview = false;
+        ArchivePreviewEntries.Clear();
+        InstallStatusMessage = "Reading archive...";
+
+        try
+        {
+            ArchiveInstallResult<ArchivePreview> result = await _archiveInstallService.PreviewAsync(ArchivePathToInstall.Trim());
+            if (!result.Success)
+            {
+                InstallStatusMessage = result.Error ?? "Could not read the archive.";
+                return;
+            }
+
+            foreach (ArchiveEntryPreview entry in result.Value!.Entries)
+            {
+                ArchivePreviewEntries.Add(new ArchiveEntryPreviewViewModel(entry));
+            }
+
+            InstallDisplayName = Path.GetFileNameWithoutExtension(ArchivePathToInstall.Trim());
+            HasArchivePreview = true;
+            InstallStatusMessage = ArchivePreviewEntries.Count(entry => entry.IsInstallable) == 0
+                ? "No installable mod files found in this archive."
+                : "Review the selection below, then install.";
+        }
+        catch (Exception ex)
+        {
+            InstallStatusMessage = $"Could not read the archive: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ConfirmInstallAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ModsFolderPath))
+        {
+            StatusMessage = "Mods folder path is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(InstallDisplayName))
+        {
+            InstallStatusMessage = "Enter a name for this mod's folder.";
+            return;
+        }
+
+        HashSet<string> selected = [.. ArchivePreviewEntries.Where(entry => entry.IsSelected).Select(entry => entry.EntryName)];
+        if (selected.Count == 0)
+        {
+            InstallStatusMessage = "Select at least one file to install.";
+            return;
+        }
+
+        IsBusy = true;
+        InstallStatusMessage = "Installing...";
+
+        try
+        {
+            ModsFolderLayout layout = _modsFolderUseCase.GetLayout(ModsFolderPath.Trim());
+            ArchiveInstallResult<InstallRecord> result = await _archiveInstallService.InstallAsync(
+                ArchivePathToInstall.Trim(),
+                selected,
+                layout,
+                InstallDisplayName.Trim(),
+                new InstallSource("manual", null, null),
+                version: null);
+
+            if (!result.Success)
+            {
+                InstallStatusMessage = result.Error ?? "Install failed.";
+                return;
+            }
+
+            IsInstallPanelVisible = false;
+            ResetInstallPanel();
+            await LoadFilesCoreAsync();
+            StatusMessage = $"Installed {result.Value!.Files.Count} file(s) to \"{InstallDisplayName}\".";
+        }
+        catch (Exception ex)
+        {
+            InstallStatusMessage = $"Install failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void CancelInstall()
+    {
+        IsInstallPanelVisible = false;
+        ResetInstallPanel();
+    }
+
+    private void ResetInstallPanel()
+    {
+        ArchivePathToInstall = string.Empty;
+        InstallDisplayName = string.Empty;
+        InstallStatusMessage = string.Empty;
+        HasArchivePreview = false;
+        ArchivePreviewEntries.Clear();
     }
 
     private async Task RunBulkActionAsync(
@@ -332,5 +499,21 @@ public partial class ModsPageViewModel : ViewModelBase
 
         public Task<IReadOnlyList<ModFileFailure>> DeleteAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<ModFileFailure>>([]);
+    }
+
+    private sealed class DesignTimeArchiveInstallService : IArchiveInstallService
+    {
+        public Task<ArchiveInstallResult<ArchivePreview>> PreviewAsync(string archivePath, CancellationToken cancellationToken = default)
+            => Task.FromResult(ArchiveInstallResult<ArchivePreview>.Ok(new ArchivePreview([])));
+
+        public Task<ArchiveInstallResult<InstallRecord>> InstallAsync(
+            string archivePath,
+            IReadOnlySet<string> selectedEntryNames,
+            ModsFolderLayout layout,
+            string displayName,
+            InstallSource source,
+            string? version,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ArchiveInstallResult<InstallRecord>.Fail("Not available at design time."));
     }
 }

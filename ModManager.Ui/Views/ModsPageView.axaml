@@ -47,11 +47,70 @@
         <Button Content="Delete"
                 Command="{Binding RequestDeleteSelectedCommand}"
                 IsEnabled="{Binding !IsBusy}" />
+        <Button Content="Install from file..."
+                Command="{Binding RequestInstallFromFileCommand}"
+                IsEnabled="{Binding !IsBusy}"
+                Margin="16,0,0,0" />
         <CheckBox Content="Group by folder"
                    IsChecked="{Binding GroupByFolder}"
                    VerticalAlignment="Center"
                    Margin="16,0,0,0" />
       </StackPanel>
+
+      <Border IsVisible="{Binding IsInstallPanelVisible}"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+              BorderThickness="1"
+              CornerRadius="4"
+              Padding="8">
+        <StackPanel Spacing="8">
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <TextBlock Grid.Column="0" Text="Archive" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <TextBox Grid.Column="1"
+                     PlaceholderText="Path to a .zip, .package, or .ts4script file"
+                     Text="{Binding ArchivePathToInstall}"
+                     IsEnabled="{Binding !IsBusy}" />
+            <Button Grid.Column="2"
+                    Content="Preview"
+                    Command="{Binding PreviewInstallCommand}"
+                    IsEnabled="{Binding !IsBusy}"
+                    Margin="8,0,0,0" />
+          </Grid>
+
+          <StackPanel IsVisible="{Binding HasArchivePreview}" Spacing="8">
+            <Grid ColumnDefinitions="Auto,*">
+              <TextBlock Grid.Column="0" Text="Install as" VerticalAlignment="Center" Margin="0,0,8,0" />
+              <TextBox Grid.Column="1"
+                       PlaceholderText="Mod folder name"
+                       Text="{Binding InstallDisplayName}"
+                       IsEnabled="{Binding !IsBusy}" />
+            </Grid>
+
+            <ListBox ItemsSource="{Binding ArchivePreviewEntries}"
+                     SelectionMode="Multiple"
+                     MaxHeight="220"
+                     IsEnabled="{Binding !IsBusy}">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ArchiveEntryPreviewViewModel">
+                  <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2">
+                    <CheckBox Grid.Column="0"
+                              IsChecked="{Binding IsSelected}"
+                              IsEnabled="{Binding IsInstallable}" />
+                    <TextBlock Grid.Column="1" Text="{Binding EntryName}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="{Binding KindLabel}" Opacity="0.75" VerticalAlignment="Center" />
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Install" Command="{Binding ConfirmInstallCommand}" IsEnabled="{Binding !IsBusy}" />
+              <Button Content="Cancel" Command="{Binding CancelInstallCommand}" IsEnabled="{Binding !IsBusy}" />
+            </StackPanel>
+          </StackPanel>
+
+          <TextBlock Text="{Binding InstallStatusMessage}" TextWrapping="Wrap" Opacity="0.85" />
+        </StackPanel>
+      </Border>
 
       <Border IsVisible="{Binding IsDeleteConfirmationVisible}"
               BorderBrush="{DynamicResource SystemControlErrorTextForegroundBrush}"

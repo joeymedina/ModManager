@@ -164,6 +164,12 @@
                                   HorizontalAlignment="Left"
                                   FontSize="11"
                                   Padding="8,2" />
+                          <Button Content="Install to Mods"
+                                  Command="{Binding InstallToModsCommand}"
+                                  IsVisible="{Binding State, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:DownloadItemState.Completed}}"
+                                  HorizontalAlignment="Left"
+                                  FontSize="11"
+                                  Padding="8,2" />
                         </StackPanel>
                       </StackPanel>
                     </DataTemplate>
