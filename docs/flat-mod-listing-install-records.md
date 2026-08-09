@@ -300,14 +300,45 @@ extracting to `%APPDATA%/ModManager/extras/<InstallId>/` is a small addition.)
 
 ---
 
-## Phases 4–5 (outline only)
+## Phase 4 — Adoption
 
-- **Adoption** — select existing rows → link to a source → write an `InstallRecord` with
-  current paths and a user-confirmed version. This is what makes pre-existing files
-  updatable, and it reuses the phase-3 preview UI. Plan properly once phase 3 lands.
-- **Manual groups** — `ModGroup` is already in the manifest shape and the bulk path-based
-  repository API means group operations are just `EnableAsync(root, group.Members)`.
-  Needed only for flat legacy folders; defer, since adoption may cover enough.
+Decisions taken with the user before starting (phase 3 has landed; this is the "plan
+properly" pass the outline deferred to):
+
+- **Metadata only — no file moves.** Adoption writes a `ManifestFileEntry` per selected
+  file plus an `InstallRecord` covering their **current** paths; it never relocates
+  anything. Matches the spec's literal wording and carries none of the risk of
+  reorganizing a folder structure the user may have set up on purpose. (Fresh installs via
+  `ArchiveInstallService.Install` still land in `Mods/<name>/`, unchanged — this only
+  affects adopting files that already exist wherever they already are.)
+- **New method on `IModsFolderRepository`/`IModsFolderUseCase`**, not
+  `IArchiveInstallService` — adoption never touches an archive, so it fits the existing
+  bulk path-based convention (`EnableAsync`/`DisableAsync`/`DeleteAsync`) rather than the
+  archive-shaped interface:
+  ```
+  Task<ArchiveInstallResult<InstallRecord>> AdoptAsync(
+      modsFolderPath, relativePaths, displayName, modPageUrl, version, ct)
+  ```
+  All-or-nothing: if any selected path can't be found under either root, the whole call
+  fails with a message naming them, rather than partially adopting.
+- **Form fields**: `DisplayName` (required — becomes every selected file's
+  `ManifestFileEntry.DisplayName`), `Version` and `ModPageUrl` (both optional — often not
+  knowable for something the user is retroactively tagging). `Source.Provider` is fixed to
+  `"adopted"`, not user-editable, so it's distinguishable later from `"manual"`/`"browser"`
+  installs and from WickedWhims's automated ones. `DownloadUrl` and `SourceArchivePath`
+  stay null — there's no archive here to point at.
+- Re-adopting an already-tracked file is allowed, not blocked — it's an explicit user
+  action confirming new metadata, and the manifest merge already treats the most-recently
+  appended `InstallRecord` covering a path as authoritative (last-write-wins), so this
+  needs no special-case pruning of the prior record.
+- Hashing reuses the same SHA256 approach as `ArchiveInstallService`; extracted to a
+  shared helper since this is the third copy of that logic (alongside
+  `WickedWhimsUpdateStrategy`).
+
+**Phase 5 — Manual groups is deferred.** The doc's own reasoning still holds: `ModGroup`
+is already in the manifest shape and group operations are just
+`EnableAsync(root, group.Members)` once needed — small enough to add later. Ship adoption
+first and see whether groups still earn their place.
 
 ---
 
@@ -328,5 +359,6 @@ extracting to `%APPDATA%/ModManager/extras/<InstallId>/` is a small addition.)
   expected.
 - CLI regression: `dotnet run --project ModManager/ModManager.Cli -- --check` must still
   work unchanged after phase 1.
-- Phases 1–2 shipped via `feature/flat-mod-listing` (merged). Phase 3 branches fresh off
-  `main` as `feature/install-pipeline`, PR into `main`.
+- Phases 1–2 shipped via `feature/flat-mod-listing` (merged). Phase 3 shipped via
+  `feature/install-pipeline` (merged). Phase 4 branches fresh off `main` as
+  `feature/adoption-and-groups`, PR into `main`.
