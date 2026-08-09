@@ -269,10 +269,11 @@ public partial class ModsPageViewModel : ViewModelBase
                 return;
             }
 
+            string installedDisplayName = InstallDisplayName;
             IsInstallPanelVisible = false;
             ResetInstallPanel();
             await LoadFilesCoreAsync();
-            StatusMessage = $"Installed {result.Value!.Files.Count} file(s) to \"{InstallDisplayName}\".";
+            StatusMessage = $"Installed {result.Value!.Files.Count} file(s) to \"{installedDisplayName}\".";
         }
         catch (Exception ex)
         {
