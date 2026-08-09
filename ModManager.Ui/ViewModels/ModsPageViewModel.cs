@@ -107,8 +107,7 @@ public partial class ModsPageViewModel : ViewModelBase
     [ObservableProperty]
     private string _addToGroupStatusMessage = string.Empty;
 
-    [ObservableProperty]
-    private string _existingGroupNamesHint = string.Empty;
+    public ObservableCollection<string> ExistingGroupNames { get; } = [];
 
     public ModsPageViewModel()
         : this(new DesignTimeModsFolderUseCase(), new DesignTimeArchiveInstallService())
@@ -626,9 +625,11 @@ public partial class ModsPageViewModel : ViewModelBase
         IReadOnlyList<ModFile> files = await _modsFolderUseCase.LoadFilesAsync(ModsFolderPath.Trim());
         IReadOnlyList<ModGroup> groups = await _modsFolderUseCase.LoadGroupsAsync(ModsFolderPath.Trim());
         _groups = [.. groups];
-        ExistingGroupNamesHint = _groups.Count == 0
-            ? string.Empty
-            : $"Existing groups: {string.Join(", ", _groups.Select(group => group.Name).OrderBy(name => name, StringComparer.OrdinalIgnoreCase))}";
+        ExistingGroupNames.Clear();
+        foreach (string name in _groups.Select(group => group.Name).OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+        {
+            ExistingGroupNames.Add(name);
+        }
 
         ReplaceFiles(files);
         StatusMessage = files.Count == 0

@@ -185,14 +185,14 @@
                      Opacity="0.85" />
           <Grid ColumnDefinitions="Auto,*">
             <TextBlock Grid.Column="0" Text="Group" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <TextBox Grid.Column="1"
-                     PlaceholderText="Type an existing or new group name"
-                     Text="{Binding GroupNameInput}"
-                     IsEnabled="{Binding !IsBusy}" />
+            <AutoCompleteBox Grid.Column="1"
+                              Watermark="Pick an existing group or type a new name"
+                              ItemsSource="{Binding ExistingGroupNames}"
+                              Text="{Binding GroupNameInput}"
+                              FilterMode="Contains"
+                              MinimumPrefixLength="0"
+                              IsEnabled="{Binding !IsBusy}" />
           </Grid>
-          <TextBlock Text="{Binding ExistingGroupNamesHint}"
-                     TextWrapping="Wrap"
-                     Opacity="0.65" />
           <StackPanel Orientation="Horizontal" Spacing="8">
             <Button Content="Add" Command="{Binding ConfirmAddToGroupCommand}" IsEnabled="{Binding !IsBusy}" />
             <Button Content="Cancel" Command="{Binding CancelAddToGroupCommand}" IsEnabled="{Binding !IsBusy}" />
