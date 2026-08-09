@@ -21,9 +21,13 @@ internal sealed class WickedWhimsVersionDetector
     ];
 
     /// <summary>
-    /// Finds the highest installed WickedWhims version in the supplied mods folder.
+    /// Finds the highest installed WickedWhims version in the supplied mods folder. When
+    /// <paramref name="scopedRelativePaths"/> is non-empty, only those files (relative to
+    /// <paramref name="folder"/>) are scanned instead of walking the whole tree — the full scan reads
+    /// every matching file's bytes, which isn't viable on a large Mods folder. Pass a prior install
+    /// record's file paths once one exists; full-tree scan is only for the no-record adoption case.
     /// </summary>
-    public InstalledModVersion? FindInstalledVersion(string folder)
+    public InstalledModVersion? FindInstalledVersion(string folder, IReadOnlyCollection<string>? scopedRelativePaths = null)
     {
         if (string.IsNullOrWhiteSpace(folder))
         {
@@ -35,8 +39,11 @@ internal sealed class WickedWhimsVersionDetector
             throw new DirectoryNotFoundException($"Mods folder does not exist: {folder}");
         }
 
-        IEnumerable<InstalledModVersion> candidates = Directory
-            .EnumerateFiles(folder, "*", SearchOption.AllDirectories)
+        IEnumerable<string> candidateFiles = scopedRelativePaths is { Count: > 0 }
+            ? scopedRelativePaths.Select(path => Path.Combine(folder, path)).Where(File.Exists)
+            : Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories);
+
+        IEnumerable<InstalledModVersion> candidates = candidateFiles
             .Where(file => Regex.IsMatch(file, @"\.(ts4script|package|py)$", RegexOptions.IgnoreCase))
             .Select(file => (File: file, Version: ExtractVersion(file)))
             .Where(item => item.Version is not null)

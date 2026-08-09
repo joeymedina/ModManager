@@ -40,10 +40,30 @@ public partial class DownloadItemViewModel : ViewModelBase
 
     public Uri? SourceUri { get; }
 
+    /// <summary>
+    /// The page the user was on when this download started (e.g. a mod's listing page), when known.
+    /// Distinct from <see cref="SourceUri"/>, which is the download's own file URL. Set by
+    /// <see cref="BrowserTabViewModel.OnBrowserDownloadStarted"/> for browser-intercepted downloads
+    /// only; left null for the direct-link fallback, where there is no separate page to attribute.
+    /// </summary>
+    public Uri? ModPageUri { get; set; }
+
+    public event Action<string, Uri?, Uri?>? InstallRequested;
+
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel() => _cancelRequested();
 
     private bool CanCancel() => State == DownloadItemState.InProgress;
+
+    [RelayCommand(CanExecute = nameof(CanInstall))]
+    private void InstallToMods() => InstallRequested?.Invoke(FilePath!, SourceUri, ModPageUri);
+
+    private bool CanInstall() =>
+        State == DownloadItemState.Completed
+        && FilePath is not null
+        && InstallableExtensions.Contains(Path.GetExtension(FilePath));
+
+    private static readonly HashSet<string> InstallableExtensions = new(StringComparer.OrdinalIgnoreCase) { ".zip", ".package", ".ts4script" };
 
     [RelayCommand(CanExecute = nameof(CanOpenContainingFolder))]
     private void OpenContainingFolder()
@@ -83,6 +103,7 @@ public partial class DownloadItemViewModel : ViewModelBase
         FilePath = filePath;
         CancelCommand.NotifyCanExecuteChanged();
         OpenContainingFolderCommand.NotifyCanExecuteChanged();
+        InstallToModsCommand.NotifyCanExecuteChanged();
     }
 
     public void MarkCanceled()
