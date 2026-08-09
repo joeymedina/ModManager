@@ -15,6 +15,13 @@ public partial class ModsPageViewModel : ViewModelBase
 
     public ObservableCollection<ModFileViewModel> SelectedFiles { get; } = [];
 
+    public ObservableCollection<ModTreeNodeViewModel> FolderTree { get; } = [];
+
+    public ObservableCollection<ModTreeNodeViewModel> SelectedTreeNodes { get; } = [];
+
+    [ObservableProperty]
+    private bool _groupByFolder;
+
     [ObservableProperty]
     private string _modsFolderPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
@@ -53,6 +60,7 @@ public partial class ModsPageViewModel : ViewModelBase
     {
         _modsFolderUseCase = modsFolderUseCase;
         SelectedFiles.CollectionChanged += (_, _) => UpdateDetails();
+        SelectedTreeNodes.CollectionChanged += (_, _) => SyncSelectedFilesFromTree();
         UpdateLayoutPaths();
     }
 
@@ -194,14 +202,50 @@ public partial class ModsPageViewModel : ViewModelBase
     private void ApplyFilter()
     {
         Files.Clear();
+        FolderTree.Clear();
+        SelectedTreeNodes.Clear();
 
-        IEnumerable<ModFileViewModel> filtered = string.IsNullOrWhiteSpace(SearchText)
+        List<ModFileViewModel> filtered = [.. string.IsNullOrWhiteSpace(SearchText)
             ? _allFiles
-            : _allFiles.Where(file => file.RelativePath.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+            : _allFiles.Where(file => file.RelativePath.Contains(SearchText, StringComparison.OrdinalIgnoreCase))];
 
         foreach (ModFileViewModel file in filtered)
         {
             Files.Add(file);
+        }
+
+        foreach (ModTreeNodeViewModel node in ModTreeNodeViewModel.BuildTree(filtered))
+        {
+            FolderTree.Add(node);
+        }
+    }
+
+    private void SyncSelectedFilesFromTree()
+    {
+        HashSet<ModFileViewModel> files = [];
+        foreach (ModTreeNodeViewModel node in SelectedTreeNodes)
+        {
+            CollectFiles(node, files);
+        }
+
+        SelectedFiles.Clear();
+        foreach (ModFileViewModel file in files)
+        {
+            SelectedFiles.Add(file);
+        }
+    }
+
+    private static void CollectFiles(ModTreeNodeViewModel node, HashSet<ModFileViewModel> files)
+    {
+        if (node.File is not null)
+        {
+            files.Add(node.File);
+            return;
+        }
+
+        foreach (ModTreeNodeViewModel child in node.Children)
+        {
+            CollectFiles(child, files);
         }
     }
 
@@ -274,7 +318,8 @@ public partial class ModsPageViewModel : ViewModelBase
             IReadOnlyList<ModFile> files =
             [
                 new ModFile("WickedWhims_main.package", ModFileState.Enabled, 1_048_576, DateTime.UtcNow),
-                new ModFile("Extras/ExtremeViolence.package", ModFileState.Disabled, 524_288, DateTime.UtcNow)
+                new ModFile("Extras/ExtremeViolence.package", ModFileState.Disabled, 524_288, DateTime.UtcNow),
+                new ModFile("Extras/Scripts/ExtremeViolence.ts4script", ModFileState.Disabled, 65_536, DateTime.UtcNow)
             ];
             return Task.FromResult(files);
         }

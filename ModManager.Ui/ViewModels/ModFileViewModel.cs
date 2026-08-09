@@ -32,6 +32,9 @@ public partial class ModFileViewModel : ViewModelBase
     [ObservableProperty]
     private string _statusText = string.Empty;
 
+    [ObservableProperty]
+    private bool _hasDepthWarning;
+
     public ModFileViewModel(ModFile file)
     {
         Apply(file);
@@ -54,5 +57,7 @@ public partial class ModFileViewModel : ViewModelBase
             : file.State == ModFileState.Enabled
                 ? "Enabled"
                 : "Disabled";
+        HasDepthWarning = string.Equals(Extension, ".ts4script", StringComparison.OrdinalIgnoreCase)
+            && Folder.Contains('/');
     }
 }
