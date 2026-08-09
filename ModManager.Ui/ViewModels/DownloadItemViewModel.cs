@@ -40,7 +40,15 @@ public partial class DownloadItemViewModel : ViewModelBase
 
     public Uri? SourceUri { get; }
 
-    public event Action<string, Uri?>? InstallRequested;
+    /// <summary>
+    /// The page the user was on when this download started (e.g. a mod's listing page), when known.
+    /// Distinct from <see cref="SourceUri"/>, which is the download's own file URL. Set by
+    /// <see cref="BrowserTabViewModel.OnBrowserDownloadStarted"/> for browser-intercepted downloads
+    /// only; left null for the direct-link fallback, where there is no separate page to attribute.
+    /// </summary>
+    public Uri? ModPageUri { get; set; }
+
+    public event Action<string, Uri?, Uri?>? InstallRequested;
 
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel() => _cancelRequested();
@@ -48,7 +56,7 @@ public partial class DownloadItemViewModel : ViewModelBase
     private bool CanCancel() => State == DownloadItemState.InProgress;
 
     [RelayCommand(CanExecute = nameof(CanInstall))]
-    private void InstallToMods() => InstallRequested?.Invoke(FilePath!, SourceUri);
+    private void InstallToMods() => InstallRequested?.Invoke(FilePath!, SourceUri, ModPageUri);
 
     private bool CanInstall() =>
         State == DownloadItemState.Completed

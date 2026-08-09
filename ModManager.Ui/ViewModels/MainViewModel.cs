@@ -44,10 +44,10 @@ public partial class MainViewModel : ViewModelBase
         browsePage.InstallRequested += OnInstallRequested;
     }
 
-    private void OnInstallRequested(string filePath, Uri? sourceUri)
+    private void OnInstallRequested(string filePath, Uri? sourceUri, Uri? modPageUri)
     {
         SelectedNavigationItem = NavigationItems[0];
-        _modsPage.BeginInstallFromFile(filePath, sourceUri);
+        _modsPage.BeginInstallFromFile(filePath, sourceUri, modPageUri);
     }
 
     partial void OnSelectedNavigationItemChanged(NavigationItemViewModel? value)

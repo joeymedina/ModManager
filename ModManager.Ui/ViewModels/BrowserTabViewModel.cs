@@ -115,6 +115,16 @@ public partial class BrowserTabViewModel : ViewModelBase
         IsLoading = false;
         StatusMessage = $"Downloading {fileName}...";
         _activeDownload = _beginDownload(fileName, sourceUri, () => BrowserDownloadCancellationRequested?.Invoke());
+
+        // The download is intercepted before the tab navigates anywhere, so AddressText is still
+        // whatever page the user clicked the download link on — the closest thing to "the mod's
+        // page" this flow has. DownloadAsync's own direct-link fallback never sets this: there,
+        // the address bar's URL and the download's URL are the same thing, not a separate page.
+        if (TryCreateUri(AddressText, out Uri? modPageUri))
+        {
+            _activeDownload.ModPageUri = modPageUri;
+        }
+
         DownloadCurrentCommand.NotifyCanExecuteChanged();
     }
 
