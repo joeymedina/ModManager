@@ -1,0 +1,22 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="560"
+             x:Class="ModManager.Ui.Views.BrowserTabView"
+             x:DataType="vm:BrowserTabViewModel"
+             DataContextChanged="OnDataContextChanged"
+             Loaded="OnLoaded"
+             Unloaded="OnUnloaded">
+  <Design.DataContext>
+    <vm:BrowserTabViewModel />
+  </Design.DataContext>
+
+  <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+          BorderThickness="1"
+          CornerRadius="6"
+          ClipToBounds="True">
+    <Decorator x:Name="BrowserHost" />
+  </Border>
+</UserControl>

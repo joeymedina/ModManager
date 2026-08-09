@@ -1,7 +1,6 @@
-﻿using Avalonia;
+using Avalonia;
 using System;
 using System.Diagnostics;
-using System.Threading.Tasks;
 
 namespace ModManager.Ui;
 
@@ -13,7 +12,7 @@ sealed class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        TaskScheduler.UnobservedTaskException += (sender, e) =>
+        TaskScheduler.UnobservedTaskException += (_, e) =>
         {
             Debug.WriteLine($"Unobserved task exception: {e.Exception}");
 
@@ -21,7 +20,7 @@ sealed class Program
             e.SetObserved();
         };
 
-        AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             var exception = e.ExceptionObject as Exception;
             Debug.WriteLine($"Unhandled domain exception (terminating: {e.IsTerminating}): {exception}");
@@ -29,11 +28,9 @@ sealed class Program
 
         try
         {
-            BuildAvaloniaApp()
-            .StartWithClassicDesktopLifetime(args);
-
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
             Debug.Write("Application terminated unexpectedly.\nException: " + ex);
         }
@@ -42,9 +39,6 @@ sealed class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
-#if DEBUG
-            .WithDeveloperTools()
-#endif
             .WithInterFont()
             .LogToTrace();
 }

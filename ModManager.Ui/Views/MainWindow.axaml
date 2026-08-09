@@ -3,41 +3,50 @@
         xmlns:vm="using:ModManager.Ui.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
         x:Class="ModManager.Ui.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Icon="/Assets/avalonia-logo.ico"
-        Title="GetStartedApp"
-Width="400"
-Height="450">
+        Title="Mod Manager"
+        Width="1000"
+        Height="700"
+        MinWidth="720"
+        MinHeight="480">
 
-    <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
-        <vm:MainViewModel />
-    </Design.DataContext>
+  <Design.DataContext>
+    <vm:MainViewModel />
+  </Design.DataContext>
 
-<StackPanel>
-        <Border Margin="5" CornerRadius="10" Background="LightBlue">
+  <Grid ColumnDefinitions="200,*">
+    <Border Grid.Column="0"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+            BorderThickness="0,0,1,0"
+            Padding="8">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Top"
+                   Text="Mod Manager"
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   Margin="8,8,8,16" />
+        <ListBox ItemsSource="{Binding NavigationItems}"
+                 SelectedItem="{Binding SelectedNavigationItem}"
+                 Background="Transparent">
+          <ListBox.Styles>
+            <Style Selector="ListBoxItem">
+              <Setter Property="Padding" Value="12,10" />
+              <Setter Property="CornerRadius" Value="6" />
+              <Setter Property="Margin" Value="0,2" />
+            </Style>
+          </ListBox.Styles>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:NavigationItemViewModel">
+              <TextBlock Text="{Binding Title}" FontSize="14" />
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
 
-    <TextBlock Margin="5"
-           FontSize="24" 
-           HorizontalAlignment="Center"
-           Text="Temperature Converter">
-    </TextBlock>
-	</Border>
-
-        <Grid ShowGridLines="False" Margin="5" 
-              ColumnDefinitions="120, 100"
-              RowDefinitions="Auto, Auto">
-            <TextBlock Grid.Row="0" Grid.Column="0" Margin="10">Celsius</TextBlock>
-            <TextBox Grid.Row="0" Grid.Column="1" TextChanged="TextBox_OnTextChanged" Margin="0 5" Text="0" Name="Celsius"/>
-
-            <TextBlock Grid.Row="1" Grid.Column="0" Margin="10">Fahrenheit</TextBlock>
-            <TextBox IsReadOnly="True" Grid.Row="1" Grid.Column="1" Margin="0 5" Text="0" Name="Fahrenheit"/>
-        </Grid>
-        <Button HorizontalAlignment="Center" Click="Button_OnClick">Calculate</Button>
-
-</StackPanel>
-
+    <Panel Grid.Column="1" x:Name="PageHost" />
+  </Grid>
 </Window>

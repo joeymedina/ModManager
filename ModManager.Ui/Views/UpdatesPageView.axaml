@@ -1,0 +1,38 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             x:Class="ModManager.Ui.Views.UpdatesPageView"
+             x:DataType="vm:UpdatesPageViewModel">
+  <Design.DataContext>
+    <vm:UpdatesPageViewModel />
+  </Design.DataContext>
+
+  <DockPanel Margin="16">
+    <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,12">
+      <TextBlock Text="Updates" FontSize="22" FontWeight="SemiBold" />
+      <TextBlock Text="{Binding StatusMessage}"
+                 Opacity="0.75"
+                 TextWrapping="Wrap" />
+    </StackPanel>
+
+    <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+            BorderThickness="1"
+            CornerRadius="6"
+            Padding="24"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch">
+      <StackPanel Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Text="No updates to show"
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   HorizontalAlignment="Center" />
+        <TextBlock Text="Update checks will appear here."
+                   Opacity="0.75"
+                   HorizontalAlignment="Center" />
+      </StackPanel>
+    </Border>
+  </DockPanel>
+</UserControl>

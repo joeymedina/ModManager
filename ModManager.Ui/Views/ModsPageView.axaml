@@ -1,0 +1,95 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             x:Class="ModManager.Ui.Views.ModsPageView"
+             x:DataType="vm:ModsPageViewModel">
+  <Design.DataContext>
+    <vm:ModsPageViewModel />
+  </Design.DataContext>
+
+  <DockPanel Margin="16">
+    <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,12">
+      <TextBlock Text="Mods Folder" FontSize="22" FontWeight="SemiBold" />
+
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <TextBlock Grid.Column="0" Text="Path" VerticalAlignment="Center" />
+        <TextBox Grid.Column="1"
+                 PlaceholderText="Mods folder path"
+                 Text="{Binding ModsFolderPath}"
+                 IsEnabled="{Binding !IsBusy}" />
+        <Button Grid.Column="2"
+                Content="Refresh"
+                Command="{Binding RefreshCommand}"
+                IsEnabled="{Binding !IsBusy}" />
+      </Grid>
+
+      <TextBlock Text="{Binding DisabledModsFolderPath, StringFormat='Disabled folder: {0}'}"
+                 Opacity="0.75"
+                 TextWrapping="Wrap" />
+      <TextBlock Text="{Binding StatusMessage}"
+                 TextWrapping="Wrap" />
+    </StackPanel>
+
+    <Grid ColumnDefinitions="2*,*">
+      <Border Grid.Column="0"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+              BorderThickness="1"
+              CornerRadius="6"
+              Padding="8">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top"
+                     Text="Discovered Mods"
+                     FontWeight="SemiBold"
+                     Margin="0,0,0,8" />
+          <ListBox ItemsSource="{Binding Mods}"
+                   SelectedItem="{Binding SelectedMod}"
+                   IsEnabled="{Binding !IsBusy}">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:ManagedModViewModel">
+                <Grid ColumnDefinitions="*,Auto" Margin="0,4">
+                  <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                    <TextBlock Opacity="0.75"
+                               Text="{Binding StatusText, StringFormat='Status: {0}'}" />
+                    <TextBlock Opacity="0.6"
+                               Text="{Binding FileCount, StringFormat='Files: {0}'}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button Content="Enable"
+                            Command="{Binding EnableCommand}"
+                            IsEnabled="{Binding CanEnable}" />
+                    <Button Content="Disable"
+                            Command="{Binding DisableCommand}"
+                            IsEnabled="{Binding CanDisable}" />
+                    <Button Content="Delete"
+                            Command="{Binding DeleteCommand}" />
+                  </StackPanel>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+      </Border>
+
+      <Border Grid.Column="1"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+              BorderThickness="1"
+              CornerRadius="6"
+              Padding="12">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Details" FontWeight="SemiBold" />
+          <TextBlock Text="{Binding SelectedMod.Name, FallbackValue='Select a mod'}"
+                     FontSize="18" />
+          <TextBlock Text="{Binding SelectedMod.PackageKey, StringFormat='Package: {0}', FallbackValue=''}" />
+          <TextBlock Text="{Binding SelectedMod.ModId, StringFormat='Id: {0}', FallbackValue=''}"
+                     TextWrapping="Wrap" />
+          <TextBlock Text="{Binding SelectedMod.StatusText, StringFormat='Status: {0}', FallbackValue=''}" />
+          <TextBlock Text="{Binding SelectedMod.FileCount, StringFormat='Files: {0}', FallbackValue=''}" />
+        </StackPanel>
+      </Border>
+    </Grid>
+  </DockPanel>
+</UserControl>
