@@ -76,7 +76,7 @@ public sealed class AdBlockService : IDisposable
         _httpClient.Dispose();
     }
 
-    private static string[] ExtractBlockedHosts(string rules)
+    internal static string[] ExtractBlockedHosts(string rules)
     {
         HashSet<string> hosts = new(StringComparer.OrdinalIgnoreCase);
 
@@ -107,7 +107,17 @@ public sealed class AdBlockService : IDisposable
     {
         if (rule.StartsWith("||", StringComparison.Ordinal))
         {
-            int end = rule.IndexOfAny(['^', '/', '$', '*']);
+            int end = rule.IndexOfAny(['^', '$', '*'], 2);
+            int slash = rule.IndexOf('/', 2);
+            if (slash >= 0 && (end < 0 || slash < end))
+            {
+                // Path-scoped rule (e.g. ||google.com/pagead/conversion_async.js) —
+                // our WKContentRuleList matching is host-only, so collapsing this to
+                // "block google.com" would block the entire site, not just the ad
+                // path EasyList actually intended to block.
+                return null;
+            }
+
             string host = (end >= 0 ? rule[2..end] : rule[2..]).Trim('.');
             return IsValidHost(host) ? host : null;
         }
@@ -118,13 +128,15 @@ public sealed class AdBlockService : IDisposable
             string value = rule[1..];
             int optionIndex = value.IndexOf('$');
             string url = optionIndex >= 0 ? value[..optionIndex] : value;
-            return Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) && IsValidHost(uri.Host)
+            return Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) &&
+                   uri.AbsolutePath is "" or "/" &&
+                   IsValidHost(uri.Host)
                 ? uri.Host
                 : null;
         }
 
-        Match match = Regex.Match(rule, @"^https?://([^/$^*]+)");
-        return match.Success && IsValidHost(match.Groups[1].Value)
+        Match match = Regex.Match(rule, @"^https?://([^/$^*]+)(/?)");
+        return match.Success && match.Groups[2].Value.Length == 0 && IsValidHost(match.Groups[1].Value)
             ? match.Groups[1].Value
             : null;
     }
