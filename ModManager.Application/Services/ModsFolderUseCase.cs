@@ -15,41 +15,41 @@ public sealed class ModsFolderUseCase(IModsFolderRepository repository) : IModsF
     }
 
     /// <summary>
-    /// Loads discovered mods from both active and disabled folders.
+    /// Discovers mod files from both active and disabled folders. Never writes.
     /// </summary>
-    public Task<IReadOnlyList<ManagedMod>> LoadModsAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ModFile>> LoadFilesAsync(string modsFolderPath, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
-        return repository.LoadModsAsync(modsFolderPath, cancellationToken);
+        return repository.LoadFilesAsync(modsFolderPath, cancellationToken);
     }
 
     /// <summary>
-    /// Moves all files for a mod into the active mods folder.
+    /// Moves the given files into the active mods folder. Continues past per-file failures.
     /// </summary>
-    public Task<ManagedMod> EnableModAsync(string modsFolderPath, string modId, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ModFileFailure>> EnableAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
-        ArgumentException.ThrowIfNullOrWhiteSpace(modId);
-        return repository.EnableModAsync(modsFolderPath, modId, cancellationToken);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+        return repository.EnableAsync(modsFolderPath, relativePaths, cancellationToken);
     }
 
     /// <summary>
-    /// Moves all files for a mod into the disabled mods folder.
+    /// Moves the given files into the disabled mods folder. Continues past per-file failures.
     /// </summary>
-    public Task<ManagedMod> DisableModAsync(string modsFolderPath, string modId, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ModFileFailure>> DisableAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
-        ArgumentException.ThrowIfNullOrWhiteSpace(modId);
-        return repository.DisableModAsync(modsFolderPath, modId, cancellationToken);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+        return repository.DisableAsync(modsFolderPath, relativePaths, cancellationToken);
     }
 
     /// <summary>
-    /// Deletes all files associated with a mod from both locations.
+    /// Deletes the given files from active and/or disabled folders. Continues past per-file failures.
     /// </summary>
-    public Task DeleteModAsync(string modsFolderPath, string modId, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ModFileFailure>> DeleteAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
-        ArgumentException.ThrowIfNullOrWhiteSpace(modId);
-        return repository.DeleteModAsync(modsFolderPath, modId, cancellationToken);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+        return repository.DeleteAsync(modsFolderPath, relativePaths, cancellationToken);
     }
 }

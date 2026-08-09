@@ -20,7 +20,6 @@ public static class InfrastructureServiceRegistrations
         services.AddSingleton<IModUpdateStrategy, WickedWhimsUpdateStrategy>();
 
         services.AddSingleton<ModsFolderPathService>();
-        services.AddSingleton<ModsManifestService>();
         services.AddSingleton<ModsDiscoveryService>();
         services.AddSingleton<ModsFileOperationsService>();
         services.AddSingleton<IModsFolderRepository, ModsFolderService>();

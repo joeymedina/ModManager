@@ -18,38 +18,39 @@ public sealed class ModsFolderUseCaseTests
     }
 
     [TestMethod]
-    public async Task LoadModsAsync_WhenRepositoryReturnsMods_ThenReturnsSameResult()
+    public async Task LoadFilesAsync_WhenRepositoryReturnsFiles_ThenReturnsSameResult()
     {
-        var expected = (IReadOnlyList<ManagedMod>)[new ManagedMod("abc", "WW", "ww", [new ManagedModFile("WW_main.package", ModFileState.Enabled)], false)];
+        var expected = (IReadOnlyList<ModFile>)[new ModFile("WW_main.package", ModFileState.Enabled, 100, DateTime.UtcNow)];
         var repositoryMock = new Mock<IModsFolderRepository>(MockBehavior.Strict);
 
         repositoryMock
-            .Setup(repository => repository.LoadModsAsync("C:/Mods", CancellationToken.None))
+            .Setup(repository => repository.LoadFilesAsync("C:/Mods", CancellationToken.None))
             .ReturnsAsync(expected);
 
         var useCase = new ModsFolderUseCase(repositoryMock.Object);
 
-        IReadOnlyList<ManagedMod> actual = await useCase.LoadModsAsync("C:/Mods", CancellationToken.None);
+        IReadOnlyList<ModFile> actual = await useCase.LoadFilesAsync("C:/Mods", CancellationToken.None);
 
         Assert.AreSame(expected, actual);
-        repositoryMock.Verify(repository => repository.LoadModsAsync("C:/Mods", CancellationToken.None), Times.Once);
+        repositoryMock.Verify(repository => repository.LoadFilesAsync("C:/Mods", CancellationToken.None), Times.Once);
     }
 
     [TestMethod]
-    public async Task DisableModAsync_WhenRepositoryReturnsUpdatedMod_ThenReturnsMod()
+    public async Task DisableAsync_WhenRepositoryReturnsFailures_ThenReturnsSameResult()
     {
-        var expected = new ManagedMod("mod-1", "WW", "ww", [new ManagedModFile("WW_main.package", ModFileState.Disabled)], false);
+        IReadOnlyList<string> paths = ["WW_main.package"];
+        var expected = (IReadOnlyList<ModFileFailure>)[new ModFileFailure("Missing.package", "File not found.")];
         var repositoryMock = new Mock<IModsFolderRepository>(MockBehavior.Strict);
 
         repositoryMock
-            .Setup(repository => repository.DisableModAsync("C:/Mods", "mod-1", CancellationToken.None))
+            .Setup(repository => repository.DisableAsync("C:/Mods", paths, CancellationToken.None))
             .ReturnsAsync(expected);
 
         var useCase = new ModsFolderUseCase(repositoryMock.Object);
 
-        ManagedMod actual = await useCase.DisableModAsync("C:/Mods", "mod-1", CancellationToken.None);
+        IReadOnlyList<ModFileFailure> actual = await useCase.DisableAsync("C:/Mods", paths, CancellationToken.None);
 
-        Assert.AreEqual(expected, actual);
-        repositoryMock.Verify(repository => repository.DisableModAsync("C:/Mods", "mod-1", CancellationToken.None), Times.Once);
+        Assert.AreSame(expected, actual);
+        repositoryMock.Verify(repository => repository.DisableAsync("C:/Mods", paths, CancellationToken.None), Times.Once);
     }
 }

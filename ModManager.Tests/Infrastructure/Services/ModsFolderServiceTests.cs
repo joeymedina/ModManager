@@ -7,7 +7,6 @@ namespace ModManager.Tests.Infrastructure.Services;
 [DoNotParallelize]
 public sealed class ModsFolderServiceTests
 {
-    private string originalAppData = string.Empty;
     private string sandboxPath = string.Empty;
     private string modsFolderPath = string.Empty;
     private string disabledFolderPath = string.Empty;
@@ -20,17 +19,11 @@ public sealed class ModsFolderServiceTests
         disabledFolderPath = Path.Combine(sandboxPath, "Mods.Disabled");
 
         Directory.CreateDirectory(modsFolderPath);
-        Directory.CreateDirectory(disabledFolderPath);
-
-        originalAppData = Environment.GetEnvironmentVariable("APPDATA") ?? string.Empty;
-        Environment.SetEnvironmentVariable("APPDATA", Path.Combine(sandboxPath, "AppData"));
     }
 
     [TestCleanup]
     public void Cleanup()
     {
-        Environment.SetEnvironmentVariable("APPDATA", originalAppData);
-
         if (!string.IsNullOrWhiteSpace(sandboxPath) && Directory.Exists(sandboxPath))
         {
             Directory.Delete(sandboxPath, recursive: true);
@@ -38,54 +31,79 @@ public sealed class ModsFolderServiceTests
     }
 
     [TestMethod]
-    public async Task LoadModsAsync_WhenCalledTwice_ThenUsesStableManifestId()
+    public async Task LoadFilesAsync_WhenCalled_ThenWritesNothingAndCreatesNoDisabledFolder()
     {
         CreateFile(modsFolderPath, "WW_main.package");
 
         var service = new ModsFolderService();
 
-        IReadOnlyList<ManagedMod> firstLoad = await service.LoadModsAsync(modsFolderPath, CancellationToken.None);
-        IReadOnlyList<ManagedMod> secondLoad = await service.LoadModsAsync(modsFolderPath, CancellationToken.None);
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
 
-        Assert.AreEqual(firstLoad.Single().ModId, secondLoad.Single().ModId);
+        Assert.HasCount(1, files);
+        Assert.IsFalse(Directory.Exists(disabledFolderPath));
     }
 
     [TestMethod]
-    public async Task DisableModAsync_WhenModIsEnabled_ThenMovesFilesToDisabledFolder()
+    public async Task DisableThenEnableAsync_WhenPathIsNested_ThenRoundTripsPreservingRelativePath()
     {
-        CreateFile(modsFolderPath, "MCCC_main.package");
+        const string relativePath = "Sub/Folder/MyMod.package";
+        CreateFile(modsFolderPath, relativePath);
 
         var service = new ModsFolderService();
-        ManagedMod discovered = (await service.LoadModsAsync(modsFolderPath, CancellationToken.None)).Single();
 
-        await service.DisableModAsync(modsFolderPath, discovered.ModId, CancellationToken.None);
+        IReadOnlyList<ModFileFailure> disableFailures = await service.DisableAsync(modsFolderPath, [relativePath], CancellationToken.None);
+        Assert.IsEmpty(disableFailures);
+        Assert.IsTrue(File.Exists(Path.Combine(disabledFolderPath, "Sub", "Folder", "MyMod.package")));
+        Assert.IsFalse(File.Exists(Path.Combine(modsFolderPath, "Sub", "Folder", "MyMod.package")));
 
-        Assert.IsTrue(File.Exists(Path.Combine(disabledFolderPath, "MCCC_main.package")));
+        IReadOnlyList<ModFileFailure> enableFailures = await service.EnableAsync(modsFolderPath, [relativePath], CancellationToken.None);
+        Assert.IsEmpty(enableFailures);
+        Assert.IsTrue(File.Exists(Path.Combine(modsFolderPath, "Sub", "Folder", "MyMod.package")));
     }
 
     [TestMethod]
-    public async Task EnableModAsync_WhenModIsDisabled_ThenMovesFilesToEnabledFolder()
+    public async Task LoadFilesAsync_WhenSamePathExistsInBothRoots_ThenReturnsOneConflictedRow()
     {
-        CreateFile(disabledFolderPath, "Basemental_main.package");
+        CreateFile(modsFolderPath, "Dup.package");
+        CreateFile(disabledFolderPath, "Dup.package");
 
         var service = new ModsFolderService();
-        ManagedMod discovered = (await service.LoadModsAsync(modsFolderPath, CancellationToken.None)).Single();
 
-        await service.EnableModAsync(modsFolderPath, discovered.ModId, CancellationToken.None);
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
 
-        Assert.IsTrue(File.Exists(Path.Combine(modsFolderPath, "Basemental_main.package")));
+        ModFile file = files.Single();
+        Assert.AreEqual("Dup.package", file.RelativePath);
+        Assert.IsTrue(file.IsConflicted);
+        Assert.AreEqual(ModFileState.Enabled, file.State);
     }
 
     [TestMethod]
-    public async Task DeleteModAsync_WhenModExists_ThenRemovesModFiles()
+    public async Task DisableAsync_WhenOnePathIsMissing_ThenAppliesTheRestAndReportsTheFailure()
+    {
+        CreateFile(modsFolderPath, "Real.package");
+
+        var service = new ModsFolderService();
+
+        IReadOnlyList<ModFileFailure> failures = await service.DisableAsync(
+            modsFolderPath,
+            ["Real.package", "Missing.package"],
+            CancellationToken.None);
+
+        Assert.HasCount(1, failures);
+        Assert.AreEqual("Missing.package", failures[0].RelativePath);
+        Assert.IsTrue(File.Exists(Path.Combine(disabledFolderPath, "Real.package")));
+    }
+
+    [TestMethod]
+    public async Task DeleteAsync_WhenFileExists_ThenRemovesFile()
     {
         CreateFile(modsFolderPath, "UI_main.package");
 
         var service = new ModsFolderService();
-        ManagedMod discovered = (await service.LoadModsAsync(modsFolderPath, CancellationToken.None)).Single();
 
-        await service.DeleteModAsync(modsFolderPath, discovered.ModId, CancellationToken.None);
+        IReadOnlyList<ModFileFailure> failures = await service.DeleteAsync(modsFolderPath, ["UI_main.package"], CancellationToken.None);
 
+        Assert.IsEmpty(failures);
         Assert.IsFalse(File.Exists(Path.Combine(modsFolderPath, "UI_main.package")));
     }
 
