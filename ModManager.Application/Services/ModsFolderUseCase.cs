@@ -52,4 +52,22 @@ public sealed class ModsFolderUseCase(IModsFolderRepository repository) : IModsF
         ArgumentNullException.ThrowIfNull(relativePaths);
         return repository.DeleteAsync(modsFolderPath, relativePaths, cancellationToken);
     }
+
+    /// <summary>
+    /// Links already-discovered files to a source by writing an InstallRecord that covers their
+    /// current paths. Metadata only — never moves or extracts anything.
+    /// </summary>
+    public Task<ArchiveInstallResult<InstallRecord>> AdoptAsync(
+        string modsFolderPath,
+        IReadOnlyList<string> relativePaths,
+        string displayName,
+        string? modPageUrl,
+        string? version,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
+        return repository.AdoptAsync(modsFolderPath, relativePaths, displayName, modPageUrl, version, cancellationToken);
+    }
 }

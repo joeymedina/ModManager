@@ -149,6 +149,66 @@ public sealed class ModsFolderService : IModsFolderRepository
         return failures;
     }
 
+    /// <summary>
+    /// Links already-discovered files to a source by writing an InstallRecord that covers their
+    /// current paths. Metadata only — never moves or extracts anything. All-or-nothing: fails if any
+    /// path can't be found under either root, rather than adopting the rest.
+    /// </summary>
+    public async Task<ArchiveInstallResult<InstallRecord>> AdoptAsync(
+        string modsFolderPath,
+        IReadOnlyList<string> relativePaths,
+        string displayName,
+        string? modPageUrl,
+        string? version,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
+
+        if (relativePaths.Count == 0)
+        {
+            return ArchiveInstallResult<InstallRecord>.Fail("Select at least one file first.");
+        }
+
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        IReadOnlyList<ModFile> discovered = _discoveryService.DiscoverFiles(layout);
+
+        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths);
+        if (failures.Count > 0)
+        {
+            string missing = string.Join(", ", failures.Select(failure => failure.RelativePath));
+            return ArchiveInstallResult<InstallRecord>.Fail($"File(s) not found: {missing}");
+        }
+
+        List<InstallRecordFile> files = [];
+        foreach (ModFile file in matched)
+        {
+            string root = file.State == ModFileState.Enabled ? layout.ModsFolderPath : layout.DisabledModsFolderPath;
+            string fullPath = _pathService.ResolveValidatedPath(root, file.RelativePath);
+            files.Add(new InstallRecordFile(file.RelativePath, FileHashing.ComputeSha256(fullPath), file.SizeBytes));
+        }
+
+        InstallRecord record = new(
+            Guid.NewGuid().ToString("N"),
+            new InstallSource("adopted", modPageUrl, null),
+            version,
+            DateTime.UtcNow,
+            null,
+            files,
+            []);
+
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+        HashSet<string> adoptedPaths = [.. files.Select(file => file.RelativePath)];
+        List<ManifestFileEntry> manifestFiles = [.. manifest.Files.Where(entry => !adoptedPaths.Contains(entry.RelativePath))];
+        manifestFiles.AddRange(files.Select(file => new ManifestFileEntry(file.RelativePath, displayName)));
+
+        ModsManifest updated = manifest with { Files = manifestFiles, Installs = [.. manifest.Installs, record] };
+        await _manifestService.SaveAsync(layout, updated, cancellationToken);
+
+        return ArchiveInstallResult<InstallRecord>.Ok(record);
+    }
+
     private static (List<ModFile> Matched, List<ModFileFailure> Failures) MatchRequestedPaths(IReadOnlyList<ModFile> discovered, IReadOnlyList<string> relativePaths)
     {
         Dictionary<string, ModFile> byPath = discovered.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);

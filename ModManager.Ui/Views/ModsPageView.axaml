@@ -51,6 +51,9 @@
                 Command="{Binding RequestInstallFromFileCommand}"
                 IsEnabled="{Binding !IsBusy}"
                 Margin="16,0,0,0" />
+        <Button Content="Adopt selected..."
+                Command="{Binding RequestAdoptSelectedCommand}"
+                IsEnabled="{Binding !IsBusy}" />
         <CheckBox Content="Group by folder"
                    IsChecked="{Binding GroupByFolder}"
                    VerticalAlignment="Center"
@@ -109,6 +112,44 @@
           </StackPanel>
 
           <TextBlock Text="{Binding InstallStatusMessage}" TextWrapping="Wrap" Opacity="0.85" />
+        </StackPanel>
+      </Border>
+
+      <Border IsVisible="{Binding IsAdoptPanelVisible}"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+              BorderThickness="1"
+              CornerRadius="4"
+              Padding="8">
+        <StackPanel Spacing="8">
+          <TextBlock Text="{Binding SelectedFiles.Count, StringFormat='Adopting {0} file(s) already in this folder — links them to a source without moving anything.'}"
+                     TextWrapping="Wrap"
+                     Opacity="0.85" />
+          <Grid ColumnDefinitions="Auto,*">
+            <TextBlock Grid.Column="0" Text="Name" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <TextBox Grid.Column="1"
+                     PlaceholderText="What is this mod called?"
+                     Text="{Binding AdoptDisplayName}"
+                     IsEnabled="{Binding !IsBusy}" />
+          </Grid>
+          <Grid ColumnDefinitions="Auto,*">
+            <TextBlock Grid.Column="0" Text="Version" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <TextBox Grid.Column="1"
+                     PlaceholderText="Optional"
+                     Text="{Binding AdoptVersion}"
+                     IsEnabled="{Binding !IsBusy}" />
+          </Grid>
+          <Grid ColumnDefinitions="Auto,*">
+            <TextBlock Grid.Column="0" Text="Mod page" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <TextBox Grid.Column="1"
+                     PlaceholderText="Optional"
+                     Text="{Binding AdoptModPageUrl}"
+                     IsEnabled="{Binding !IsBusy}" />
+          </Grid>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Adopt" Command="{Binding ConfirmAdoptCommand}" IsEnabled="{Binding !IsBusy}" />
+            <Button Content="Cancel" Command="{Binding CancelAdoptCommand}" IsEnabled="{Binding !IsBusy}" />
+          </StackPanel>
+          <TextBlock Text="{Binding AdoptStatusMessage}" TextWrapping="Wrap" Opacity="0.85" />
         </StackPanel>
       </Border>
 
