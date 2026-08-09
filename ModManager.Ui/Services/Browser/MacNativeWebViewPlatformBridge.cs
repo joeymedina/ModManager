@@ -13,6 +13,7 @@ public sealed class MacNativeWebViewPlatformBridge : INativeWebViewPlatformBridg
     private readonly Func<BrowserTabViewModel?> _getViewModel;
     private NativeWebView? _browser;
     private WKDownloadInterceptor? _downloadInterceptor;
+    private bool _disposed;
 
     public MacNativeWebViewPlatformBridge(
         AdBlockService adBlockService,
@@ -44,6 +45,7 @@ public sealed class MacNativeWebViewPlatformBridge : INativeWebViewPlatformBridg
 
     public void Dispose()
     {
+        _disposed = true;
         _downloadInterceptor?.Dispose();
         _downloadInterceptor = null;
 
@@ -79,6 +81,26 @@ public sealed class MacNativeWebViewPlatformBridge : INativeWebViewPlatformBridg
 
         IntPtr webViewHandle = handle.WKWebView;
         _downloadInterceptor = new WKDownloadInterceptor(webViewHandle, _getViewModel);
-        WKContentRuleListAdBlocker.Apply(webViewHandle, _adBlockService.GetBlockedHosts());
+        _ = ApplyAdBlockRulesAsync(webViewHandle);
+    }
+
+    // AdBlockService.RefreshAsync() is kicked off fire-and-forget alongside
+    // tab construction, so GetBlockedHosts() is essentially guaranteed to
+    // still be empty the moment the WKWebView adapter first becomes
+    // available (native view creation is fast; the EasyList network fetch
+    // is not). Unlike Windows' per-request WebResourceRequested check, which
+    // self-corrects once the list finishes loading a moment later,
+    // WKContentRuleList is a one-shot "compile and install" — applying it
+    // once against an empty host list means this tab silently never blocks
+    // anything, for its entire lifetime. So: wait for the list before
+    // installing the rule list, rather than racing it.
+    private async Task ApplyAdBlockRulesAsync(IntPtr webViewHandle)
+    {
+        await _adBlockService.RefreshAsync();
+
+        if (!_disposed)
+        {
+            WKContentRuleListAdBlocker.Apply(webViewHandle, _adBlockService.GetBlockedHosts());
+        }
     }
 }

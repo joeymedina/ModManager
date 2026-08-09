@@ -16,13 +16,20 @@ public sealed class AdBlockService : IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "ModManager",
         "easylist.txt");
+    private Task? _refreshTask;
 
     public AdBlockService()
     {
         SQLitePCL.Batteries_V2.Init();
     }
 
-    public async Task RefreshAsync(CancellationToken cancellationToken = default)
+    // Single-flight: callers that need to know the blocklist is actually
+    // loaded (not just "a refresh was kicked off somewhere") can await this
+    // and get the same in-flight fetch instead of triggering a second one.
+    public Task RefreshAsync(CancellationToken cancellationToken = default) =>
+        _refreshTask ??= RefreshCoreAsync(cancellationToken);
+
+    private async Task RefreshCoreAsync(CancellationToken cancellationToken)
     {
         try
         {
