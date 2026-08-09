@@ -10,22 +10,22 @@ public interface IModsFolderUseCase
     ModsFolderLayout GetLayout(string modsFolderPath);
 
     /// <summary>
-    /// Loads discovered mods from both active and disabled folders.
+    /// Discovers mod files from both active and disabled folders. Never writes.
     /// </summary>
-    Task<IReadOnlyList<ManagedMod>> LoadModsAsync(string modsFolderPath, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ModFile>> LoadFilesAsync(string modsFolderPath, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Moves all files for a mod into the active mods folder.
+    /// Moves the given files into the active mods folder. Continues past per-file failures.
     /// </summary>
-    Task<ManagedMod> EnableModAsync(string modsFolderPath, string modId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ModFileFailure>> EnableAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Moves all files for a mod into the disabled mods folder.
+    /// Moves the given files into the disabled mods folder. Continues past per-file failures.
     /// </summary>
-    Task<ManagedMod> DisableModAsync(string modsFolderPath, string modId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ModFileFailure>> DisableAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes all files associated with a mod from both locations.
+    /// Deletes the given files from active and/or disabled folders. Continues past per-file failures.
     /// </summary>
-    Task DeleteModAsync(string modsFolderPath, string modId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ModFileFailure>> DeleteAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default);
 }

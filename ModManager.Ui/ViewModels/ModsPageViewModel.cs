@@ -9,8 +9,11 @@ namespace ModManager.Ui.ViewModels;
 public partial class ModsPageViewModel : ViewModelBase
 {
     private readonly IModsFolderUseCase _modsFolderUseCase;
+    private List<ModFileViewModel> _allFiles = [];
 
-    public ObservableCollection<ManagedModViewModel> Mods { get; } = [];
+    public ObservableCollection<ModFileViewModel> Files { get; } = [];
+
+    public ObservableCollection<ModFileViewModel> SelectedFiles { get; } = [];
 
     [ObservableProperty]
     private string _modsFolderPath = Path.Combine(
@@ -21,13 +24,25 @@ public partial class ModsPageViewModel : ViewModelBase
     private string _disabledModsFolderPath = string.Empty;
 
     [ObservableProperty]
+    private string _searchText = string.Empty;
+
+    [ObservableProperty]
     private string _statusMessage = "Enter a mods folder path and click Refresh.";
 
     [ObservableProperty]
     private bool _isBusy;
 
     [ObservableProperty]
-    private ManagedModViewModel? _selectedMod;
+    private string _detailHeader = "Select a file";
+
+    [ObservableProperty]
+    private string _detailBody = string.Empty;
+
+    [ObservableProperty]
+    private bool _isDeleteConfirmationVisible;
+
+    [ObservableProperty]
+    private string _deleteConfirmationMessage = string.Empty;
 
     public ModsPageViewModel()
         : this(new DesignTimeModsFolderUseCase())
@@ -37,6 +52,7 @@ public partial class ModsPageViewModel : ViewModelBase
     public ModsPageViewModel(IModsFolderUseCase modsFolderUseCase)
     {
         _modsFolderUseCase = modsFolderUseCase;
+        SelectedFiles.CollectionChanged += (_, _) => UpdateDetails();
         UpdateLayoutPaths();
     }
 
@@ -59,12 +75,7 @@ public partial class ModsPageViewModel : ViewModelBase
 
         try
         {
-            UpdateLayoutPaths();
-            IReadOnlyList<ManagedMod> mods = await _modsFolderUseCase.LoadModsAsync(ModsFolderPath.Trim());
-            ReplaceMods(mods);
-            StatusMessage = mods.Count == 0
-                ? "No mods found."
-                : $"Loaded {mods.Count} mod(s).";
+            await LoadFilesCoreAsync();
         }
         catch (Exception ex)
         {
@@ -76,46 +87,49 @@ public partial class ModsPageViewModel : ViewModelBase
         }
     }
 
-    public async Task EnableModAsync(ManagedModViewModel mod)
+    [RelayCommand]
+    private Task EnableSelectedAsync() => RunBulkActionAsync(
+        "Enabling", "Enabled",
+        (root, paths, ct) => _modsFolderUseCase.EnableAsync(root, paths, ct));
+
+    [RelayCommand]
+    private Task DisableSelectedAsync() => RunBulkActionAsync(
+        "Disabling", "Disabled",
+        (root, paths, ct) => _modsFolderUseCase.DisableAsync(root, paths, ct));
+
+    [RelayCommand]
+    private void RequestDeleteSelected()
     {
-        await RunModActionAsync(mod, "Enabling", async () =>
+        if (SelectedFiles.Count == 0)
         {
-            ManagedMod updated = await _modsFolderUseCase.EnableModAsync(ModsFolderPath.Trim(), mod.ModId);
-            mod.Apply(updated);
-            StatusMessage = $"Enabled {mod.Name}.";
-        });
+            StatusMessage = "Select one or more files first.";
+            return;
+        }
+
+        DeleteConfirmationMessage = $"Delete {SelectedFiles.Count} file(s) permanently? This cannot be undone.";
+        IsDeleteConfirmationVisible = true;
     }
 
-    public async Task DisableModAsync(ManagedModViewModel mod)
+    [RelayCommand]
+    private void CancelDeleteSelected()
     {
-        await RunModActionAsync(mod, "Disabling", async () =>
-        {
-            ManagedMod updated = await _modsFolderUseCase.DisableModAsync(ModsFolderPath.Trim(), mod.ModId);
-            mod.Apply(updated);
-            StatusMessage = $"Disabled {mod.Name}.";
-        });
+        IsDeleteConfirmationVisible = false;
     }
 
-    public async Task DeleteModAsync(ManagedModViewModel mod)
+    [RelayCommand]
+    private async Task ConfirmDeleteSelectedAsync()
     {
-        await RunModActionAsync(mod, "Deleting", async () =>
-        {
-            await _modsFolderUseCase.DeleteModAsync(ModsFolderPath.Trim(), mod.ModId);
-            Mods.Remove(mod);
-            if (ReferenceEquals(SelectedMod, mod))
-            {
-                SelectedMod = null;
-            }
-
-            StatusMessage = $"Deleted {mod.Name}.";
-        });
+        IsDeleteConfirmationVisible = false;
+        await RunBulkActionAsync(
+            "Deleting", "Deleted",
+            (root, paths, ct) => _modsFolderUseCase.DeleteAsync(root, paths, ct));
     }
 
-    private async Task RunModActionAsync(ManagedModViewModel mod, string actionLabel, Func<Task> action)
+    private async Task RunBulkActionAsync(
+        string progressLabel,
+        string resultLabel,
+        Func<string, IReadOnlyList<string>, CancellationToken, Task<IReadOnlyList<ModFileFailure>>> action)
     {
-        ArgumentNullException.ThrowIfNull(mod);
-        ArgumentNullException.ThrowIfNull(action);
-
         if (IsBusy)
         {
             return;
@@ -127,16 +141,25 @@ public partial class ModsPageViewModel : ViewModelBase
             return;
         }
 
+        List<string> paths = [.. SelectedFiles.Select(file => file.RelativePath)];
+        if (paths.Count == 0)
+        {
+            StatusMessage = "Select one or more files first.";
+            return;
+        }
+
         IsBusy = true;
-        StatusMessage = $"{actionLabel} {mod.Name}...";
+        StatusMessage = $"{progressLabel} {paths.Count} file(s)...";
 
         try
         {
-            await action();
+            IReadOnlyList<ModFileFailure> failures = await action(ModsFolderPath.Trim(), paths, CancellationToken.None);
+            await LoadFilesCoreAsync();
+            StatusMessage = BuildResultMessage(resultLabel, paths.Count, failures);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Failed while {actionLabel.ToLowerInvariant()} {mod.Name}: {ex.Message}";
+            StatusMessage = $"Failed while {progressLabel.ToLowerInvariant()}: {ex.Message}";
         }
         finally
         {
@@ -144,19 +167,73 @@ public partial class ModsPageViewModel : ViewModelBase
         }
     }
 
-    private void ReplaceMods(IReadOnlyList<ManagedMod> mods)
+    private static string BuildResultMessage(string resultLabel, int total, IReadOnlyList<ModFileFailure> failures)
     {
-        string? selectedId = SelectedMod?.ModId;
-        Mods.Clear();
-
-        foreach (ManagedMod mod in mods)
+        int succeeded = total - failures.Count;
+        if (failures.Count == 0)
         {
-            Mods.Add(new ManagedModViewModel(this, mod));
+            return $"{resultLabel} {succeeded} file(s).";
         }
 
-        SelectedMod = selectedId is null
-            ? null
-            : Mods.FirstOrDefault(item => string.Equals(item.ModId, selectedId, StringComparison.OrdinalIgnoreCase));
+        string reasons = string.Join("; ", failures.Select(failure => $"{failure.RelativePath}: {failure.Reason}"));
+        return $"{resultLabel} {succeeded} file(s), {failures.Count} failed: {reasons}";
+    }
+
+    private async Task LoadFilesCoreAsync()
+    {
+        UpdateLayoutPaths();
+        IReadOnlyList<ModFile> files = await _modsFolderUseCase.LoadFilesAsync(ModsFolderPath.Trim());
+        ReplaceFiles(files);
+        StatusMessage = files.Count == 0
+            ? "No mod files found."
+            : $"Loaded {files.Count} file(s).";
+    }
+
+    partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    private void ApplyFilter()
+    {
+        Files.Clear();
+
+        IEnumerable<ModFileViewModel> filtered = string.IsNullOrWhiteSpace(SearchText)
+            ? _allFiles
+            : _allFiles.Where(file => file.RelativePath.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+
+        foreach (ModFileViewModel file in filtered)
+        {
+            Files.Add(file);
+        }
+    }
+
+    private void ReplaceFiles(IReadOnlyList<ModFile> files)
+    {
+        SelectedFiles.Clear();
+        _allFiles = [.. files.Select(file => new ModFileViewModel(file))];
+        ApplyFilter();
+    }
+
+    private void UpdateDetails()
+    {
+        if (SelectedFiles.Count == 0)
+        {
+            DetailHeader = "Select a file";
+            DetailBody = string.Empty;
+        }
+        else if (SelectedFiles.Count == 1)
+        {
+            ModFileViewModel file = SelectedFiles[0];
+            DetailHeader = file.Name;
+            DetailBody = $"Folder: {(string.IsNullOrEmpty(file.Folder) ? "(root)" : file.Folder)}\n"
+                + $"Size: {file.SizeBytes:N0} bytes\n"
+                + $"Modified: {file.ModifiedUtc:u}\n"
+                + $"Status: {file.StatusText}";
+        }
+        else
+        {
+            long totalBytes = SelectedFiles.Sum(file => file.SizeBytes);
+            DetailHeader = $"{SelectedFiles.Count} files selected";
+            DetailBody = $"Total size: {totalBytes:N0} bytes";
+        }
     }
 
     private void UpdateLayoutPaths()
@@ -192,23 +269,23 @@ public partial class ModsPageViewModel : ViewModelBase
             return new ModsFolderLayout(path, Path.Combine(parent, $"{name}.Disabled"));
         }
 
-        public Task<IReadOnlyList<ManagedMod>> LoadModsAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<ModFile>> LoadFilesAsync(string modsFolderPath, CancellationToken cancellationToken = default)
         {
-            IReadOnlyList<ManagedMod> mods =
+            IReadOnlyList<ModFile> files =
             [
-                new ManagedMod("demo-1", "WickedWhims", "WickedWhims", [new ManagedModFile("WickedWhims_main.package", ModFileState.Enabled)], false),
-                new ManagedMod("demo-2", "ExtremeViolence", "ExtremeViolence", [new ManagedModFile("ExtremeViolence.package", ModFileState.Disabled)], false)
+                new ModFile("WickedWhims_main.package", ModFileState.Enabled, 1_048_576, DateTime.UtcNow),
+                new ModFile("Extras/ExtremeViolence.package", ModFileState.Disabled, 524_288, DateTime.UtcNow)
             ];
-            return Task.FromResult(mods);
+            return Task.FromResult(files);
         }
 
-        public Task<ManagedMod> EnableModAsync(string modsFolderPath, string modId, CancellationToken cancellationToken = default)
-            => Task.FromResult(new ManagedMod(modId, modId, modId, [new ManagedModFile($"{modId}.package", ModFileState.Enabled)], false));
+        public Task<IReadOnlyList<ModFileFailure>> EnableAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ModFileFailure>>([]);
 
-        public Task<ManagedMod> DisableModAsync(string modsFolderPath, string modId, CancellationToken cancellationToken = default)
-            => Task.FromResult(new ManagedMod(modId, modId, modId, [new ManagedModFile($"{modId}.package", ModFileState.Disabled)], false));
+        public Task<IReadOnlyList<ModFileFailure>> DisableAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ModFileFailure>>([]);
 
-        public Task DeleteModAsync(string modsFolderPath, string modId, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        public Task<IReadOnlyList<ModFileFailure>> DeleteAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ModFileFailure>>([]);
     }
 }

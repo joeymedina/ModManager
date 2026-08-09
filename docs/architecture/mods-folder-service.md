@@ -1,13 +1,18 @@
 # ModsFolderService Architecture Decisions
 
 ## Context
-`ModsFolderService` is the filesystem-backed repository used by the application use case for mod discovery and mod state management (enable/disable/delete) for Sims 4 mods.
+`ModsFolderService` is the filesystem-backed repository used by the application use case
+for flat mod-file discovery and file-level state management (enable/disable/delete) for
+Sims 4 mod files. It replaced an earlier design that grouped files into `ManagedMod`
+"packages" by filename-prefix guessing; see
+[flat-mod-listing-install-records.md](../flat-mod-listing-install-records.md) and
+[mod-listing-and-update-tracking.md](./mod-listing-and-update-tracking.md) for why.
 
 ## Layering / Clean Architecture
 
 - `IModsFolderRepository` and `IModsFolderUseCase` are defined in the **Application** layer.
 - `ModsFolderService` is in **Infrastructure** and implements `IModsFolderRepository`.
-- Mod workflow models are stored in **Application/Models** (including `Models/Mods/*`).
+- The `ModFile` / `ModFileFailure` models live in **Application/Models**.
 - Infrastructure contains IO behavior and adapters, while orchestration contracts stay in Application.
 - Team standard: one class per file; no nested model classes inside services.
 
@@ -15,7 +20,7 @@
 
 `ModsFolderService` is intentionally thin and delegates to focused helper services. It exposes two constructors:
 
-- **Parameterized constructor** — used by DI; receives all four helpers as injected singletons.
+- **Parameterized constructor** — used by DI; receives all injected singletons.
 - **Parameterless constructor** — used by infrastructure tests; constructs helpers directly with `new` so tests can instantiate `ModsFolderService` without a service provider.
 
 Helper services:
@@ -23,106 +28,110 @@ Helper services:
 - `ModsFolderPathService`
   - Resolves `Mods` and sibling `Mods.Disabled` paths.
   - Validates relative paths resolve under expected roots.
-- `ModsManifestService`
-  - Loads/saves `%APPDATA%/ModManager/mods-manifest.json`.
-  - Gets/creates profile entries keyed by absolute mods-folder path.
 - `ModsDiscoveryService`
-  - Discovers supported mod files from active/disabled roots.
-  - Groups discovered files into logical mods.
-  - Maps `ManagedMod` to manifest records.
+  - Discovers supported mod files from active/disabled roots into a flat, sorted list.
+  - Pure: no manifest argument, no writes, no directory creation.
 - `ModsFileOperationsService`
-  - Performs enable/disable move operations.
-  - Performs delete operations.
+  - Performs bulk enable/disable move operations and bulk delete operations.
+  - Continues past per-file failures and returns them rather than throwing.
   - Cleans up empty directories after file operations.
+
+There is currently no manifest service — see "Manifest" below.
 
 ## Folder State Strategy
 
-- Active mods live under the configured `Mods` folder.
-- Disabled mods live in a sibling folder named `Mods.Disabled`.
-- Enabling/disabling a mod is implemented as moving its files between these two roots.
+- Active mod files live under the configured `Mods` folder.
+- Disabled mod files live in a sibling folder named `Mods.Disabled`.
+- Enabling/disabling operates on individual files (by relative path) as moves between these two roots.
 
-## Internal Coordination Type
+## Manifest
 
-`RepositoryState` (Application/Models/Mods) is a private-by-convention record returned by the internal `LoadStateAsync` helper. It bundles everything needed for a single operation:
+Phase 1 has no manifest. `ModsManifestService` and the old `%APPDATA%/ModManager/mods-manifest.json`
+were deleted outright — nothing in phase 1 writes user metadata (display names, groups,
+install links), so there is nothing to persist yet. The old AppData file, if present, is
+left on disk untouched and unread.
 
-```text
-RepositoryState
-  Layout   : ModsFolderLayout    – resolved folder paths
-  Manifest : ManifestModel        – full JSON manifest loaded from AppData
-  Profile  : ManifestProfile      – the profile for the current mods folder
-  Mods     : IReadOnlyList<ManagedMod> – discovered mods for this call
-```
+A per-folder manifest (`Path.Combine(layout.ModsFolderPath, ".modmanager.json")`) is
+planned for phase 3, once install records are the first thing that needs it. See
+[flat-mod-listing-install-records.md](../flat-mod-listing-install-records.md).
 
-Grouping these into one record keeps every operation atomic with respect to state loading and avoids passing four arguments between private methods.
+## File Identity
 
-## Mod Identity and Persistence
+- **`RelativePath`** (normalized, `/`-separated) is the identity of a `ModFile`. There is
+  no separate stable ID — the relative path already survives enable/disable moves because
+  `ModsFileOperationsService` preserves it when moving between roots.
+- Renaming a file outside the manager breaks any link to metadata keyed on the old path.
+  Accepted trade-off; see the architecture direction doc for the mitigation sketch
+  (opportunistic hashing), not implemented.
 
-- Mod identity is stable and represented by `ModId`.
-- IDs and related metadata are persisted in a JSON manifest at:
-  - `%APPDATA%/ModManager/mods-manifest.json`
-- Manifest supports multiple profiles keyed by the absolute `Mods` folder path.
+## Discovery
 
-## Discovery and Grouping
-
-- Mod files are discovered from both `Mods` and `Mods.Disabled`.
+- Mod files are discovered from both `Mods` and `Mods.Disabled` via
+  `DirectoryInfo.EnumerateFiles(..., AllDirectories)`, which yields `SizeBytes` and
+  `ModifiedUtc` from the directory walk itself.
 - Supported file extensions: `.package`, `.ts4script`.
-- Current grouping heuristic: **prefix before first `_` or `-`** from file name (without extension).
-- This grouping heuristic is temporary and should be revisited in a later iteration.
+- No grouping. `DiscoverFiles(layout)` returns one row per file, sorted by `RelativePath`.
+- **Conflict rule**: a relative path present under both roots yields a single row with
+  `IsConflicted = true` and `State = Enabled`. Enable/disable on a conflicted row fails
+  with a per-file reason; delete removes both copies. This is reachable today because
+  `MoveFilesForStateChangeAsync` refuses to overwrite an occupied destination and leaves
+  the source behind.
 
 ## Safety and Consistency Rules
 
 - All computed file paths are validated to remain under expected roots.
-- Move operations fail on destination conflicts (no silent overwrite).
+- Move operations skip (rather than throw on) destination conflicts, recording a failure.
 - Empty directories created by file moves/deletes are cleaned up.
-- Delete removes all files associated with a mod and then updates manifest state.
+- **Reads create nothing.** `LoadFilesAsync` does not call `Directory.CreateDirectory` on
+  either root; a `Mods.Disabled` folder only appears once something is actually disabled
+  into it.
 
 ## Dependency Injection
 
 - `IModsFolderUseCase` -> `ModsFolderUseCase` (Application DI).
 - `IModsFolderRepository` -> `ModsFolderService` (Infrastructure DI).
-- `ModsFolderPathService`, `ModsManifestService`, `ModsDiscoveryService`, and `ModsFileOperationsService` are registered in Infrastructure DI.
+- `ModsFolderPathService`, `ModsDiscoveryService`, and `ModsFileOperationsService` are registered in Infrastructure DI.
 
 ## Operational Flow
 
-- `LoadModsAsync`
-  1. Resolve folder paths and ensure directories exist.
-  2. Load manifest and get/create profile for the mods root.
-  3. Discover files from `Mods` and `Mods.Disabled`, then group into logical mods.
-  4. Persist merged profile state back to manifest.
-- `EnableModAsync` / `DisableModAsync`
-  1. Load current state.
-  2. Resolve target mod by `ModId`.
-  3. Move files between active/disabled roots.
-  4. Call `LoadModsAsync` to rediscover and re-persist state (this is a second manifest save; the first save occurs inside `LoadModsAsync` when it snapshots the newly discovered mod list).
-  5. Return the refreshed `ManagedMod` for the changed mod ID.
-- `DeleteModAsync`
-  1. Load current state.
-  2. Resolve target mod by `ModId`.
-  3. Delete all associated files.
-  4. Remove mod from manifest profile and persist.
-
-## Naming Semantics
-
-- `ModId`: stable persisted identifier used for commands and UI actions.
-- `PackageKey`: technical grouping key derived from file name prefix heuristic.
-- `Name`: display-friendly name (currently defaults to `PackageKey` unless overridden via manifest).
+- `LoadFilesAsync`
+  1. Resolve folder paths (no directory creation).
+  2. Discover files from `Mods` and `Mods.Disabled` as a flat list.
+- `EnableAsync` / `DisableAsync`
+  1. Discover the current flat file list.
+  2. Match each requested relative path against it; unmatched paths become failures.
+  3. Conflicted matches become failures (must be resolved before a state change).
+  4. Move the remaining files between active/disabled roots, continuing past per-file
+     failures (locked file, occupied destination).
+  5. Return the aggregated list of failures (empty means everything succeeded).
+- `DeleteAsync`
+  1. Discover the current flat file list.
+  2. Match requested paths; unmatched paths become failures.
+  3. Delete each matched file from whichever root(s) it exists in (both, for a conflicted
+     path), continuing past per-file failures.
+  4. Return the aggregated list of failures.
 
 ## Error and Conflict Behavior
 
-- Invalid or unsafe relative paths throw `InvalidOperationException`.
-- Missing requested mod ID throws `InvalidOperationException`.
-- Enable/disable fails when destination file already exists (no overwrite).
-- Missing source file during move throws `FileNotFoundException`.
+- Invalid or unsafe relative paths throw `InvalidOperationException` (unchanged from before).
+- A requested path that does not exist becomes a `ModFileFailure("File not found.")`
+  rather than an exception — the caller may have selected a stale row.
+- Enable/disable on a conflicted path becomes a `ModFileFailure` explaining the conflict.
+- A locked file or occupied destination during a move/delete becomes a `ModFileFailure`
+  with the underlying `IOException`/`UnauthorizedAccessException` message; the rest of
+  the batch still proceeds.
+- **No rollback.** A partially applied batch is not undone — undoing file moves is itself
+  a risky write, and failed paths can simply be retried.
 
 ## Test Strategy
 
 - **Application tests** (`ModsFolderUseCaseTests`) use Moq for repository behavior/contract verification.
-- **Infrastructure tests** (`ModsFolderServiceTests`) are filesystem integration-style tests validating real file moves/deletes and manifest-stable IDs.
+- **Infrastructure tests** (`ModsFolderServiceTests`) are filesystem integration-style tests against a temp sandbox, covering: a read writes nothing and creates no `Mods.Disabled`; a nested-path enable/disable round trip; the conflict row; and partial-failure reporting on a bulk operation.
 - Keep the split: mocking at use-case boundary, real IO assertions at infrastructure boundary.
 
 ## Future Improvements (Planned)
 
-- Replace filename-prefix grouping with a more explicit package model.
-- Add configurable conflict policies for move operations.
-- Expand manifest metadata (hashes, source URL, version tracking).
-- Add repair/reconciliation flow for manifest drift vs filesystem state.
+- Phase 2: folder-tree view over the flat list; `.ts4script` depth warning.
+- Phase 3: reintroduce a per-folder manifest; install pipeline and install records; version-aware, record-driven updates.
+- Phase 4: adoption flow linking pre-existing files to a source.
+- Phase 5: manual groups.

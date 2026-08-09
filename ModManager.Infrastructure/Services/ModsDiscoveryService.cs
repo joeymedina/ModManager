@@ -7,106 +7,46 @@ public sealed class ModsDiscoveryService
     private static readonly HashSet<string> SupportedExtensions = [".package", ".ts4script"];
 
     /// <summary>
-    /// Discovers managed mods from active and disabled folders and merges stable IDs from manifest profile.
+    /// Discovers mod files from active and disabled folders as a flat, sorted list. Pure: never writes.
+    /// A relative path present under both roots yields one conflicted, enabled row.
     /// </summary>
-    public IReadOnlyList<ManagedMod> DiscoverMods(ModsFolderLayout layout, ManifestProfile profile)
+    public IReadOnlyList<ModFile> DiscoverFiles(ModsFolderLayout layout)
     {
         ArgumentNullException.ThrowIfNull(layout);
-        ArgumentNullException.ThrowIfNull(profile);
 
-        Dictionary<string, ManifestMod> existingByPackageKey = profile.Mods
-            .GroupBy(mod => mod.PackageKey, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, ModFile> byPath = new(StringComparer.OrdinalIgnoreCase);
 
-        List<(string PackageKey, ManagedModFile File)> discoveredFiles =
-        [
-            .. EnumerateModFiles(layout.ModsFolderPath, ModFileState.Enabled),
-            .. EnumerateModFiles(layout.DisabledModsFolderPath, ModFileState.Disabled)
-        ];
-
-        return [.. discoveredFiles
-            .GroupBy(item => item.PackageKey, StringComparer.OrdinalIgnoreCase)
-            .Select(group =>
-            {
-                existingByPackageKey.TryGetValue(group.Key, out ManifestMod? existing);
-
-                List<ManagedModFile> files = group
-                    .Select(item => item.File)
-                    .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                bool isMixedState = files
-                    .Select(file => file.State)
-                    .Distinct()
-                    .Skip(1)
-                    .Any();
-
-                string displayName = !string.IsNullOrWhiteSpace(existing?.Name)
-                    ? existing.Name
-                    : group.Key;
-
-                return new ManagedMod(
-                    existing?.ModId ?? Guid.NewGuid().ToString("N"),
-                    displayName,
-                    group.Key,
-                    files,
-                    isMixedState);
-            })
-            .OrderBy(mod => mod.Name, StringComparer.OrdinalIgnoreCase)];
-    }
-
-    /// <summary>
-    /// Maps a managed mod to its manifest representation.
-    /// </summary>
-    public ManifestMod ToManifestMod(ManagedMod mod)
-    {
-        ArgumentNullException.ThrowIfNull(mod);
-
-        return new ManifestMod
+        foreach (ModFile file in EnumerateModFiles(layout.ModsFolderPath, ModFileState.Enabled))
         {
-            ModId = mod.ModId,
-            Name = mod.Name,
-            PackageKey = mod.PackageKey,
-            Files = [.. mod.Files.Select(file => new ManifestModFile
-            {
-                RelativePath = file.RelativePath,
-                State = file.State
-            })]
-        };
+            byPath[file.RelativePath] = file;
+        }
+
+        foreach (ModFile file in EnumerateModFiles(layout.DisabledModsFolderPath, ModFileState.Disabled))
+        {
+            byPath[file.RelativePath] = byPath.TryGetValue(file.RelativePath, out ModFile? existing)
+                ? existing with { IsConflicted = true }
+                : file;
+        }
+
+        return [.. byPath.Values.OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static IEnumerable<(string PackageKey, ManagedModFile File)> EnumerateModFiles(string root, ModFileState state)
+    private static IEnumerable<ModFile> EnumerateModFiles(string root, ModFileState state)
     {
         if (!Directory.Exists(root))
         {
             yield break;
         }
 
-        foreach (string filePath in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        foreach (FileInfo fileInfo in new DirectoryInfo(root).EnumerateFiles("*", SearchOption.AllDirectories))
         {
-            string extension = Path.GetExtension(filePath);
-            if (!SupportedExtensions.Contains(extension))
+            if (!SupportedExtensions.Contains(fileInfo.Extension))
             {
                 continue;
             }
 
-            string relativePath = Path.GetRelativePath(root, filePath).Replace(Path.DirectorySeparatorChar, '/');
-            string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(relativePath);
-            string packageKey = DerivePackageKey(fileNameWithoutExtension);
-            yield return (packageKey, new ManagedModFile(relativePath, state));
+            string relativePath = Path.GetRelativePath(root, fileInfo.FullName).Replace(Path.DirectorySeparatorChar, '/');
+            yield return new ModFile(relativePath, state, fileInfo.Length, fileInfo.LastWriteTimeUtc);
         }
-    }
-
-    // TODO: Consider using a more robust package key derivation strategy if needed.
-    private static string DerivePackageKey(string fileNameWithoutExtension)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(fileNameWithoutExtension);
-
-        int separatorIndex = fileNameWithoutExtension.IndexOfAny(['_', '-']);
-        string prefix = separatorIndex <= 0
-            ? fileNameWithoutExtension
-            : fileNameWithoutExtension[..separatorIndex];
-
-        return prefix.Trim();
     }
 }
