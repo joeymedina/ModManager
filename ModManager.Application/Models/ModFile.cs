@@ -8,4 +8,7 @@ public sealed record ModFile(
     bool IsConflicted = false,
     string? DisplayName = null,
     string? GroupId = null,
-    string? InstallId = null);
+    string? InstallId = null,
+    string? Version = null,
+    DateTime? InstalledUtc = null,
+    string? Provider = null);

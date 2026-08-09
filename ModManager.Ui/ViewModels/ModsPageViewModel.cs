@@ -552,7 +552,9 @@ public partial class ModsPageViewModel : ViewModelBase
                 + $"Size: {file.SizeBytes:N0} bytes\n"
                 + $"Modified: {file.ModifiedUtc:u}\n"
                 + $"Status: {file.StatusText}"
-                + (file.InstallId is { Length: > 0 } ? $"\nInstalled via: {file.InstallId}" : string.Empty);
+                + (file.Version is { Length: > 0 } ? $"\nVersion: {file.Version}" : string.Empty)
+                + (file.InstalledUtc is { } installedUtc ? $"\nInstalled: {installedUtc:u}" : string.Empty)
+                + (file.Provider is { Length: > 0 } ? $"\nSource: {file.Provider}" : string.Empty);
         }
         else
         {

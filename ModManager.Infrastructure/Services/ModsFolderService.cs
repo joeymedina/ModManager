@@ -44,8 +44,8 @@ public sealed class ModsFolderService : IModsFolderRepository
 
     /// <summary>
     /// Discovers mod files from both active and disabled folders and layers manifest metadata
-    /// (display name, group, install id) onto them. Never writes and never creates either root
-    /// folder.
+    /// (display name, group, and the owning install's id/version/installed date/provider) onto them.
+    /// Never writes and never creates either root folder.
     /// </summary>
     public async Task<IReadOnlyList<ModFile>> LoadFilesAsync(string modsFolderPath, CancellationToken cancellationToken = default)
     {
@@ -61,27 +61,27 @@ public sealed class ModsFolderService : IModsFolderRepository
         Dictionary<string, ManifestFileEntry> entriesByPath = manifest.Files
             .ToDictionary(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase);
 
-        Dictionary<string, string> installIdByPath = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, InstallRecord> recordByPath = new(StringComparer.OrdinalIgnoreCase);
         foreach (InstallRecord record in manifest.Installs)
         {
             foreach (InstallRecordFile file in record.Files)
             {
-                installIdByPath[file.RelativePath] = record.InstallId;
+                recordByPath[file.RelativePath] = record;
             }
         }
 
-        return [.. discovered.Select(file => ApplyManifest(file, entriesByPath, installIdByPath))];
+        return [.. discovered.Select(file => ApplyManifest(file, entriesByPath, recordByPath))];
     }
 
     private static ModFile ApplyManifest(
         ModFile file,
         IReadOnlyDictionary<string, ManifestFileEntry> entriesByPath,
-        IReadOnlyDictionary<string, string> installIdByPath)
+        IReadOnlyDictionary<string, InstallRecord> recordByPath)
     {
         ManifestFileEntry? entry = entriesByPath.GetValueOrDefault(file.RelativePath);
-        string? installId = installIdByPath.GetValueOrDefault(file.RelativePath);
+        InstallRecord? record = recordByPath.GetValueOrDefault(file.RelativePath);
 
-        if (entry is null && installId is null)
+        if (entry is null && record is null)
         {
             return file;
         }
@@ -90,7 +90,10 @@ public sealed class ModsFolderService : IModsFolderRepository
         {
             DisplayName = entry?.DisplayName,
             GroupId = entry?.GroupId,
-            InstallId = installId,
+            InstallId = record?.InstallId,
+            Version = record?.Version,
+            InstalledUtc = record?.InstalledUtc,
+            Provider = record?.Source.Provider,
         };
     }
 
