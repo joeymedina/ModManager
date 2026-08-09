@@ -144,7 +144,7 @@ public sealed class WindowsNativeWebViewPlatformBridge : INativeWebViewPlatformB
         e.Handled = true;
         e.ResultFilePath = path;
 
-        Dispatcher.UIThread.Post(() => viewModel.OnBrowserDownloadStarted(Path.GetFileName(path)));
+        Dispatcher.UIThread.Post(() => viewModel.OnBrowserDownloadStarted(Path.GetFileName(path), uri));
 
         DetachActiveDownload();
         _activeDownloadOperation = e.DownloadOperation;

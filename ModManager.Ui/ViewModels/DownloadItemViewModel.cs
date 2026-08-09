@@ -40,7 +40,7 @@ public partial class DownloadItemViewModel : ViewModelBase
 
     public Uri? SourceUri { get; }
 
-    public event Action<string>? InstallRequested;
+    public event Action<string, Uri?>? InstallRequested;
 
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel() => _cancelRequested();
@@ -48,7 +48,7 @@ public partial class DownloadItemViewModel : ViewModelBase
     private bool CanCancel() => State == DownloadItemState.InProgress;
 
     [RelayCommand(CanExecute = nameof(CanInstall))]
-    private void InstallToMods() => InstallRequested?.Invoke(FilePath!);
+    private void InstallToMods() => InstallRequested?.Invoke(FilePath!, SourceUri);
 
     private bool CanInstall() =>
         State == DownloadItemState.Completed

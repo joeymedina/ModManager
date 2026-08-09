@@ -11,6 +11,7 @@ public partial class ModsPageViewModel : ViewModelBase
     private readonly IModsFolderUseCase _modsFolderUseCase;
     private readonly IArchiveInstallService _archiveInstallService;
     private List<ModFileViewModel> _allFiles = [];
+    private Uri? _pendingInstallSourceUri;
 
     public ObservableCollection<ModFileViewModel> Files { get; } = [];
 
@@ -87,9 +88,10 @@ public partial class ModsPageViewModel : ViewModelBase
     /// Opens the install panel pre-filled with a downloaded archive's path and runs its preview,
     /// so the browser's "Install to Mods" prompt lands the user straight at the selection screen.
     /// </summary>
-    public void BeginInstallFromFile(string archivePath)
+    public void BeginInstallFromFile(string archivePath, Uri? sourceUri = null)
     {
         ArchivePathToInstall = archivePath;
+        _pendingInstallSourceUri = sourceUri;
         IsInstallPanelVisible = true;
         _ = PreviewInstallAsync();
     }
@@ -255,12 +257,13 @@ public partial class ModsPageViewModel : ViewModelBase
         try
         {
             ModsFolderLayout layout = _modsFolderUseCase.GetLayout(ModsFolderPath.Trim());
+            string provider = _pendingInstallSourceUri is null ? "manual" : "browser";
             ArchiveInstallResult<InstallRecord> result = await _archiveInstallService.InstallAsync(
                 ArchivePathToInstall.Trim(),
                 selected,
                 layout,
                 InstallDisplayName.Trim(),
-                new InstallSource("manual", null, null),
+                new InstallSource(provider, null, _pendingInstallSourceUri?.ToString()),
                 version: null);
 
             if (!result.Success)
@@ -299,6 +302,7 @@ public partial class ModsPageViewModel : ViewModelBase
         InstallStatusMessage = string.Empty;
         HasArchivePreview = false;
         ArchivePreviewEntries.Clear();
+        _pendingInstallSourceUri = null;
     }
 
     private async Task RunBulkActionAsync(

@@ -110,11 +110,11 @@ public partial class BrowserTabViewModel : ViewModelBase
     public string GetBrowserDownloadPath(Uri uri, string? suggestedFileName) =>
         _downloadService.GetDownloadPath(uri, suggestedFileName);
 
-    public void OnBrowserDownloadStarted(string fileName)
+    public void OnBrowserDownloadStarted(string fileName, Uri? sourceUri = null)
     {
         IsLoading = false;
         StatusMessage = $"Downloading {fileName}...";
-        _activeDownload = _beginDownload(fileName, null, () => BrowserDownloadCancellationRequested?.Invoke());
+        _activeDownload = _beginDownload(fileName, sourceUri, () => BrowserDownloadCancellationRequested?.Invoke());
         DownloadCurrentCommand.NotifyCanExecuteChanged();
     }
 

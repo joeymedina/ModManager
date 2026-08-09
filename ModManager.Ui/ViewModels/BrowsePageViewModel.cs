@@ -16,7 +16,7 @@ public partial class BrowsePageViewModel : ViewModelBase
 
     public ObservableCollection<DownloadItemViewModel> Downloads { get; } = [];
 
-    public event Action<string>? InstallRequested;
+    public event Action<string, Uri?>? InstallRequested;
 
     public BrowsePageViewModel()
         : this(new BrowserDownloadService())
@@ -69,7 +69,7 @@ public partial class BrowsePageViewModel : ViewModelBase
     private DownloadItemViewModel BeginDownload(string fileName, Uri? sourceUri, Action cancelRequested)
     {
         DownloadItemViewModel item = new(fileName, sourceUri, cancelRequested);
-        item.InstallRequested += filePath => InstallRequested?.Invoke(filePath);
+        item.InstallRequested += (filePath, sourceUri) => InstallRequested?.Invoke(filePath, sourceUri);
         Downloads.Insert(0, item);
         return item;
     }

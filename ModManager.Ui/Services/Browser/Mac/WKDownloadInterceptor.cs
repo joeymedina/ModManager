@@ -195,7 +195,7 @@ internal sealed unsafe class WKDownloadInterceptor : IDisposable
         }
 
         string fileName = uri.Segments.LastOrDefault() ?? uri.Host;
-        Dispatcher.UIThread.Post(() => viewModel.OnBrowserDownloadStarted(fileName));
+        Dispatcher.UIThread.Post(() => viewModel.OnBrowserDownloadStarted(fileName, uri));
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
