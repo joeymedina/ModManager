@@ -82,6 +82,7 @@
                      Text="Mod Files"
                      FontWeight="SemiBold"
                      Margin="0,0,0,8" />
+          <Panel>
           <ListBox ItemsSource="{Binding Files}"
                    SelectedItems="{Binding SelectedFiles}"
                    SelectionMode="Multiple"
@@ -127,6 +128,7 @@
               </TreeDataTemplate>
             </TreeView.ItemTemplate>
           </TreeView>
+          </Panel>
         </DockPanel>
       </Border>
 
