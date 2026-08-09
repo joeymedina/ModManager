@@ -44,6 +44,15 @@ public partial class ModFileViewModel : ViewModelBase
     [ObservableProperty]
     private string? _installId;
 
+    [ObservableProperty]
+    private string? _version;
+
+    [ObservableProperty]
+    private DateTime? _installedUtc;
+
+    [ObservableProperty]
+    private string? _provider;
+
     public ModFileViewModel(ModFile file)
     {
         Apply(file);
@@ -71,5 +80,8 @@ public partial class ModFileViewModel : ViewModelBase
         DisplayName = file.DisplayName;
         GroupId = file.GroupId;
         InstallId = file.InstallId;
+        Version = file.Version;
+        InstalledUtc = file.InstalledUtc;
+        Provider = file.Provider;
     }
 }

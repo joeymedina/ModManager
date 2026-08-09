@@ -71,6 +71,21 @@ public partial class ModsPageViewModel : ViewModelBase
     [ObservableProperty]
     private string _installStatusMessage = string.Empty;
 
+    [ObservableProperty]
+    private bool _isAdoptPanelVisible;
+
+    [ObservableProperty]
+    private string _adoptDisplayName = string.Empty;
+
+    [ObservableProperty]
+    private string _adoptVersion = string.Empty;
+
+    [ObservableProperty]
+    private string _adoptModPageUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _adoptStatusMessage = string.Empty;
+
     public ModsPageViewModel()
         : this(new DesignTimeModsFolderUseCase(), new DesignTimeArchiveInstallService())
     {
@@ -165,6 +180,97 @@ public partial class ModsPageViewModel : ViewModelBase
         await RunBulkActionAsync(
             "Deleting", "Deleted",
             (root, paths, ct) => _modsFolderUseCase.DeleteAsync(root, paths, ct));
+    }
+
+    [RelayCommand]
+    private void RequestAdoptSelected()
+    {
+        if (SelectedFiles.Count == 0)
+        {
+            StatusMessage = "Select one or more files first.";
+            return;
+        }
+
+        IsAdoptPanelVisible = true;
+    }
+
+    [RelayCommand]
+    private async Task ConfirmAdoptAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ModsFolderPath))
+        {
+            StatusMessage = "Mods folder path is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(AdoptDisplayName))
+        {
+            AdoptStatusMessage = "Enter a name for this mod.";
+            return;
+        }
+
+        List<string> paths = [.. SelectedFiles.Select(file => file.RelativePath)];
+        if (paths.Count == 0)
+        {
+            AdoptStatusMessage = "Select one or more files first.";
+            return;
+        }
+
+        IsBusy = true;
+        AdoptStatusMessage = "Adopting...";
+
+        try
+        {
+            string? modPageUrl = string.IsNullOrWhiteSpace(AdoptModPageUrl) ? null : AdoptModPageUrl.Trim();
+            string? version = string.IsNullOrWhiteSpace(AdoptVersion) ? null : AdoptVersion.Trim();
+
+            ArchiveInstallResult<InstallRecord> result = await _modsFolderUseCase.AdoptAsync(
+                ModsFolderPath.Trim(),
+                paths,
+                AdoptDisplayName.Trim(),
+                modPageUrl,
+                version);
+
+            if (!result.Success)
+            {
+                AdoptStatusMessage = result.Error ?? "Adopt failed.";
+                return;
+            }
+
+            string adoptedDisplayName = AdoptDisplayName;
+            IsAdoptPanelVisible = false;
+            ResetAdoptPanel();
+            await LoadFilesCoreAsync();
+            StatusMessage = $"Adopted {paths.Count} file(s) as \"{adoptedDisplayName}\".";
+        }
+        catch (Exception ex)
+        {
+            AdoptStatusMessage = $"Adopt failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void CancelAdopt()
+    {
+        IsAdoptPanelVisible = false;
+        ResetAdoptPanel();
+    }
+
+    private void ResetAdoptPanel()
+    {
+        AdoptDisplayName = string.Empty;
+        AdoptVersion = string.Empty;
+        AdoptModPageUrl = string.Empty;
+        AdoptStatusMessage = string.Empty;
     }
 
     [RelayCommand]
@@ -446,7 +552,9 @@ public partial class ModsPageViewModel : ViewModelBase
                 + $"Size: {file.SizeBytes:N0} bytes\n"
                 + $"Modified: {file.ModifiedUtc:u}\n"
                 + $"Status: {file.StatusText}"
-                + (file.InstallId is { Length: > 0 } ? $"\nInstalled via: {file.InstallId}" : string.Empty);
+                + (file.Version is { Length: > 0 } ? $"\nVersion: {file.Version}" : string.Empty)
+                + (file.InstalledUtc is { } installedUtc ? $"\nInstalled: {installedUtc:u}" : string.Empty)
+                + (file.Provider is { Length: > 0 } ? $"\nSource: {file.Provider}" : string.Empty);
         }
         else
         {
@@ -508,6 +616,15 @@ public partial class ModsPageViewModel : ViewModelBase
 
         public Task<IReadOnlyList<ModFileFailure>> DeleteAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<ModFileFailure>>([]);
+
+        public Task<ArchiveInstallResult<InstallRecord>> AdoptAsync(
+            string modsFolderPath,
+            IReadOnlyList<string> relativePaths,
+            string displayName,
+            string? modPageUrl,
+            string? version,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ArchiveInstallResult<InstallRecord>.Fail("Not available at design time."));
     }
 
     private sealed class DesignTimeArchiveInstallService : IArchiveInstallService

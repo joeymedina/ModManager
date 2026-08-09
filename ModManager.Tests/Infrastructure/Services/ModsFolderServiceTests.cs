@@ -107,6 +107,58 @@ public sealed class ModsFolderServiceTests
         Assert.IsFalse(File.Exists(Path.Combine(modsFolderPath, "UI_main.package")));
     }
 
+    [TestMethod]
+    public async Task AdoptAsync_WhenFilesExist_ThenRecordsWithoutMovingAnything()
+    {
+        CreateFile(modsFolderPath, "Loose.package");
+        CreateFile(modsFolderPath, "Sub/Nested.package");
+
+        var service = new ModsFolderService();
+
+        ArchiveInstallResult<InstallRecord> result = await service.AdoptAsync(
+            modsFolderPath,
+            ["Loose.package", "Sub/Nested.package"],
+            "My Old Mod",
+            "https://example.com/mod",
+            "2.1",
+            CancellationToken.None);
+
+        Assert.IsTrue(result.Success);
+        Assert.HasCount(2, result.Value!.Files);
+        Assert.AreEqual("adopted", result.Value.Source.Provider);
+        Assert.AreEqual("https://example.com/mod", result.Value.Source.ModPageUrl);
+        Assert.IsNull(result.Value.Source.DownloadUrl);
+        Assert.AreEqual("2.1", result.Value.Version);
+        Assert.IsTrue(File.Exists(Path.Combine(modsFolderPath, "Loose.package")));
+        Assert.IsTrue(File.Exists(Path.Combine(modsFolderPath, "Sub", "Nested.package")));
+
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsTrue(files.All(file => file.DisplayName == "My Old Mod"));
+        Assert.IsTrue(files.All(file => file.InstallId == result.Value.InstallId));
+    }
+
+    [TestMethod]
+    public async Task AdoptAsync_WhenAPathIsMissing_ThenFailsWithoutAdoptingTheRest()
+    {
+        CreateFile(modsFolderPath, "Real.package");
+
+        var service = new ModsFolderService();
+
+        ArchiveInstallResult<InstallRecord> result = await service.AdoptAsync(
+            modsFolderPath,
+            ["Real.package", "Missing.package"],
+            "Partial Mod",
+            null,
+            null,
+            CancellationToken.None);
+
+        Assert.IsFalse(result.Success);
+        StringAssert.Contains(result.Error, "Missing.package");
+
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsNull(files.Single().DisplayName);
+    }
+
     private static void CreateFile(string root, string relativePath)
     {
         string fullPath = Path.Combine(root, relativePath);

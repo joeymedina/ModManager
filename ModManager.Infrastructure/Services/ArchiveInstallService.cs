@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using ModManager.Application.Interfaces;
 using ModManager.Application.Models;
@@ -129,7 +128,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
         string targetPath = Path.Combine(targetRoot, fileName);
         File.Copy(archivePath, targetPath, overwrite: true);
 
-        InstallRecordFile installed = new(fileName, ComputeSha256(targetPath), new FileInfo(targetPath).Length);
+        InstallRecordFile installed = new(fileName, FileHashing.ComputeSha256(targetPath), new FileInfo(targetPath).Length);
         InstallRecord record = new(
             Guid.NewGuid().ToString("N"),
             source,
@@ -194,7 +193,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
             entry.ExtractToFile(targetPath, overwrite: true);
 
             string relativeToModsFolder = Path.GetRelativePath(modsFolderPath, targetPath).Replace(Path.DirectorySeparatorChar, '/');
-            installed.Add(new InstallRecordFile(relativeToModsFolder, ComputeSha256(targetPath), new FileInfo(targetPath).Length));
+            installed.Add(new InstallRecordFile(relativeToModsFolder, FileHashing.ComputeSha256(targetPath), new FileInfo(targetPath).Length));
         }
 
         return new InstallRecord(
@@ -302,10 +301,4 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
             : $"'{extension}' archives aren't supported yet — extract manually, then use Install from file.";
     // ponytail: System.IO.Compression is zip-only. SharpCompress would add .rar/.7z support if this
     // turns out to matter in practice.
-
-    private static string ComputeSha256(string path)
-    {
-        using FileStream stream = File.OpenRead(path);
-        return Convert.ToHexStringLower(SHA256.HashData(stream));
-    }
 }

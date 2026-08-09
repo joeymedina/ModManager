@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using System.Security.Cryptography;
 using ModManager.Application.Interfaces;
 using ModManager.Application.Models;
 using ModManager.Infrastructure.Services;
@@ -166,16 +165,10 @@ internal sealed class WickedWhimsUpdateStrategy(
 
             written.Add(new InstallRecordFile(
                 Path.GetRelativePath(folder, target).Replace(Path.DirectorySeparatorChar, '/'),
-                ComputeSha256(target),
+                FileHashing.ComputeSha256(target),
                 new FileInfo(target).Length));
         }
 
         return written;
-    }
-
-    private static string ComputeSha256(string path)
-    {
-        using FileStream stream = File.OpenRead(path);
-        return Convert.ToHexStringLower(SHA256.HashData(stream));
     }
 }
