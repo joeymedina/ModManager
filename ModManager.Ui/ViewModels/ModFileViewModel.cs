@@ -35,6 +35,15 @@ public partial class ModFileViewModel : ViewModelBase
     [ObservableProperty]
     private bool _hasDepthWarning;
 
+    [ObservableProperty]
+    private string? _displayName;
+
+    [ObservableProperty]
+    private string? _groupId;
+
+    [ObservableProperty]
+    private string? _installId;
+
     public ModFileViewModel(ModFile file)
     {
         Apply(file);
@@ -59,5 +68,8 @@ public partial class ModFileViewModel : ViewModelBase
                 : "Disabled";
         HasDepthWarning = string.Equals(Extension, ".ts4script", StringComparison.OrdinalIgnoreCase)
             && Folder.Contains('/');
+        DisplayName = file.DisplayName;
+        GroupId = file.GroupId;
+        InstallId = file.InstallId;
     }
 }

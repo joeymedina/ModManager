@@ -9,7 +9,7 @@ namespace ModManager.Infrastructure.Services.WickedWhims;
 internal sealed class WickedWhimsReleaseClient
 {
     private const string DownloadPage = "https://wickedwhimsmod.com/download/";
-    private const string ItchPage = "https://turbodriver.itch.io/wickedwhims";
+    internal const string ItchPage = "https://turbodriver.itch.io/wickedwhims";
 
     private readonly HttpClient httpClient = CreateClient();
 
@@ -30,9 +30,10 @@ internal sealed class WickedWhimsReleaseClient
     }
 
     /// <summary>
-    /// Downloads the latest WickedWhims archive bytes from the official service.
+    /// Downloads the latest WickedWhims archive from the official service, along with the resolved
+    /// file URL actually used (itch.io signs it per-request, so it's only known after resolving).
     /// </summary>
-    public async Task<byte[]> DownloadLatestArchiveAsync(CancellationToken cancellationToken)
+    public async Task<WickedWhimsDownload> DownloadLatestArchiveAsync(CancellationToken cancellationToken)
     {
         string page = await httpClient.GetStringAsync(ItchPage, cancellationToken);
         Match upload = Regex.Match(page, @"data-upload_id=""(\d+)""[^>]*>[\s\S]*?<strong[^>]*class=""name""[^>]*>([^<]+)", RegexOptions.IgnoreCase);
@@ -63,7 +64,8 @@ internal sealed class WickedWhimsReleaseClient
             throw new InvalidOperationException("Official download service returned no archive URL.");
         }
 
-        return await httpClient.GetByteArrayAsync(url, cancellationToken);
+        byte[] bytes = await httpClient.GetByteArrayAsync(url, cancellationToken);
+        return new WickedWhimsDownload(url, bytes);
     }
 
     private static HttpClient CreateClient()
@@ -73,3 +75,5 @@ internal sealed class WickedWhimsReleaseClient
         return client;
     }
 }
+
+internal sealed record WickedWhimsDownload(string Url, byte[] Bytes);

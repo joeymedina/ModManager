@@ -441,11 +441,12 @@ public partial class ModsPageViewModel : ViewModelBase
         else if (SelectedFiles.Count == 1)
         {
             ModFileViewModel file = SelectedFiles[0];
-            DetailHeader = file.Name;
+            DetailHeader = file.DisplayName is { Length: > 0 } ? $"{file.DisplayName} ({file.Name})" : file.Name;
             DetailBody = $"Folder: {(string.IsNullOrEmpty(file.Folder) ? "(root)" : file.Folder)}\n"
                 + $"Size: {file.SizeBytes:N0} bytes\n"
                 + $"Modified: {file.ModifiedUtc:u}\n"
-                + $"Status: {file.StatusText}";
+                + $"Status: {file.StatusText}"
+                + (file.InstallId is { Length: > 0 } ? $"\nInstalled via: {file.InstallId}" : string.Empty);
         }
         else
         {

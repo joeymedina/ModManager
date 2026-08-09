@@ -47,14 +47,14 @@ internal sealed class WickedWhimsUpdateStrategy(
 
         if (comparison < 0 && request.DownloadIfUpdateAvailable)
         {
-            byte[] archiveBytes = await releaseClient.DownloadLatestArchiveAsync(cancellationToken);
-            IReadOnlyList<InstallRecordFile> newFiles = ExtractArchive(installRoot, archiveBytes);
+            WickedWhimsDownload download = await releaseClient.DownloadLatestArchiveAsync(cancellationToken);
+            IReadOnlyList<InstallRecordFile> newFiles = ExtractArchive(installRoot, download.Bytes);
 
             DeleteStaleFiles(installRoot, previousRecord, newFiles);
 
             InstallRecord newRecord = new(
                 Guid.NewGuid().ToString("N"),
-                new InstallSource(StrategyModId, null, null),
+                new InstallSource(StrategyModId, WickedWhimsReleaseClient.ItchPage, download.Url),
                 latestRelease.Version,
                 DateTime.UtcNow,
                 null,
