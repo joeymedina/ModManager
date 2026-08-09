@@ -100,6 +100,7 @@ internal sealed unsafe class WKDownloadInterceptor : IDisposable
     private readonly IntPtr _originalNavigationDelegate;
     private IntPtr _activeDownloadHandle;
     private Uri? _pendingUri;
+    private string? _pendingFilePath;
     private bool _cancelRequested;
 
     public WKDownloadInterceptor(IntPtr webViewHandle, Func<BrowserTabViewModel?> getViewModel)
@@ -207,6 +208,7 @@ internal sealed unsafe class WKDownloadInterceptor : IDisposable
         if (interceptor?._pendingUri is { } uri && interceptor._getViewModel() is { } viewModel)
         {
             string path = viewModel.GetBrowserDownloadPath(uri, NativeString.Read(suggestedFilename));
+            interceptor._pendingFilePath = path;
             IntPtr pathString = NativeString.Create(path);
             destinationUrl = Libobjc.IntPtr_msgSend(NsUrlClass, FileUrlWithPathSel, pathString);
         }
@@ -227,12 +229,14 @@ internal sealed unsafe class WKDownloadInterceptor : IDisposable
         BrowserTabViewModel? viewModel = interceptor._getViewModel();
         interceptor._activeDownloadHandle = IntPtr.Zero;
         interceptor._pendingUri = null;
+        string? filePath = interceptor._pendingFilePath;
+        interceptor._pendingFilePath = null;
         if (viewModel is null)
         {
             return;
         }
 
-        Dispatcher.UIThread.Post(() => viewModel.OnBrowserDownloadUpdated(1, completed: true, canceled: false, path: null));
+        Dispatcher.UIThread.Post(() => viewModel.OnBrowserDownloadUpdated(1, completed: true, canceled: false, path: filePath));
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
@@ -248,6 +252,7 @@ internal sealed unsafe class WKDownloadInterceptor : IDisposable
         bool wasCanceled = interceptor._cancelRequested;
         interceptor._activeDownloadHandle = IntPtr.Zero;
         interceptor._pendingUri = null;
+        interceptor._pendingFilePath = null;
         interceptor._cancelRequested = false;
         if (viewModel is null)
         {

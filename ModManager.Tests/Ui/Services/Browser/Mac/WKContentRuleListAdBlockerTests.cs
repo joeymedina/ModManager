@@ -27,6 +27,24 @@ public sealed class WKContentRuleListAdBlockerTests
     }
 
     [TestMethod]
+    public void BuildRuleListJson_WhenGivenBlockedHosts_ThenUrlFilterHasNoDisjunction()
+    {
+        // WebKit's content-blocker url-filter regex dialect rejects `|`
+        // alternation ("Disjunctions are not supported yet", WKErrorDomain
+        // error 6) — confirmed against real WKContentRuleListStore compilation
+        // on macOS, where a `|` in the pattern silently fails the *entire*
+        // rule list, not just the offending rule.
+#pragma warning disable CA1416
+        string json = WKContentRuleListAdBlocker.BuildRuleListJson(["ads.example.com"]);
+#pragma warning restore CA1416
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        string? urlFilter = document.RootElement[0].GetProperty("trigger").GetProperty("url-filter").GetString();
+
+        Assert.IsTrue(urlFilter is not null && !urlFilter.Contains('|'));
+    }
+
+    [TestMethod]
     public void BuildRuleListJson_WhenGivenNoBlockedHosts_ThenProducesEmptyArray()
     {
 #pragma warning disable CA1416

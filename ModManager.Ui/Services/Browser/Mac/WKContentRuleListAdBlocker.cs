@@ -29,6 +29,7 @@ internal static class WKContentRuleListAdBlocker
     private static readonly IntPtr ConfigurationSel = Libobjc.sel_getUid("configuration");
     private static readonly IntPtr UserContentControllerSel = Libobjc.sel_getUid("userContentController");
     private static readonly IntPtr AddContentRuleListSel = Libobjc.sel_getUid("addContentRuleList:");
+    private static readonly IntPtr LocalizedDescriptionSel = Libobjc.sel_getUid("localizedDescription");
 
     private static readonly unsafe IntPtr CompletionCallback =
         new((delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&OnCompiled);
@@ -53,9 +54,14 @@ internal static class WKContentRuleListAdBlocker
     {
         if (contentRuleList == IntPtr.Zero)
         {
-            Debug.WriteLine("WKContentRuleList compilation failed.");
+            string? description = error != IntPtr.Zero
+                ? NativeString.Read(Libobjc.IntPtr_msgSend(error, LocalizedDescriptionSel))
+                : null;
+            Debug.WriteLine($"WKContentRuleList compilation failed: {description ?? "(no NSError)"}");
             return;
         }
+
+        Debug.WriteLine("WKContentRuleList compilation succeeded.");
 
         IntPtr webViewHandle = BlockLiteral.TryGetBlockState(block);
         if (webViewHandle == IntPtr.Zero)
@@ -74,7 +80,13 @@ internal static class WKContentRuleListAdBlocker
         List<ContentRule> rules = new(blockedHosts.Count);
         foreach (string host in blockedHosts)
         {
-            string pattern = $"""^https?://([a-z0-9-]+\.)*{Regex.Escape(host)}([:/]|$)""";
+            // WebKit's content-blocker url-filter regex dialect rejects `|`
+            // alternation ("Disjunctions are not supported yet", WKErrorDomain
+            // error 6), so the boundary check can't be `([:/]|$)`. Every request
+            // URL WebKit actually loads always has a `/` after the authority
+            // (empty paths are normalized to "/"), so `[:/]` alone covers the
+            // real cases without needing an end-of-string alternative.
+            string pattern = $"""^https?://([a-z0-9-]+\.)*{Regex.Escape(host)}[:/]""";
             rules.Add(new ContentRule(new ContentRuleTrigger(pattern, resourceTypes), new ContentRuleAction("block")));
         }
 
