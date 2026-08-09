@@ -47,6 +47,10 @@
         <Button Content="Delete"
                 Command="{Binding RequestDeleteSelectedCommand}"
                 IsEnabled="{Binding !IsBusy}" />
+        <CheckBox Content="Group by folder"
+                   IsChecked="{Binding GroupByFolder}"
+                   VerticalAlignment="Center"
+                   Margin="16,0,0,0" />
       </StackPanel>
 
       <Border IsVisible="{Binding IsDeleteConfirmationVisible}"
@@ -81,6 +85,7 @@
           <ListBox ItemsSource="{Binding Files}"
                    SelectedItems="{Binding SelectedFiles}"
                    SelectionMode="Multiple"
+                   IsVisible="{Binding !GroupByFolder}"
                    IsEnabled="{Binding !IsBusy}">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="vm:ModFileViewModel">
@@ -90,14 +95,38 @@
                     <TextBlock Opacity="0.75"
                                Text="{Binding Folder, StringFormat='Folder: {0}'}" />
                   </StackPanel>
-                  <TextBlock Grid.Column="1"
-                             Text="{Binding StatusText}"
-                             VerticalAlignment="Center"
-                             Opacity="0.75" />
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <TextBlock Text="⚠"
+                               Foreground="Orange"
+                               IsVisible="{Binding HasDepthWarning}"
+                               ToolTip.Tip="More than one folder below Mods root — this script mod won't load." />
+                    <TextBlock Text="{Binding StatusText}" Opacity="0.75" />
+                  </StackPanel>
                 </Grid>
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
+
+          <TreeView ItemsSource="{Binding FolderTree}"
+                    SelectedItems="{Binding SelectedTreeNodes}"
+                    SelectionMode="Multiple"
+                    IsVisible="{Binding GroupByFolder}"
+                    IsEnabled="{Binding !IsBusy}">
+            <TreeView.ItemTemplate>
+              <TreeDataTemplate x:DataType="vm:ModTreeNodeViewModel" ItemsSource="{Binding Children}">
+                <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                  <TextBlock Grid.Column="0" Text="{Binding Name}" />
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" IsVisible="{Binding !IsFolder}">
+                    <TextBlock Text="⚠"
+                               Foreground="Orange"
+                               IsVisible="{Binding File.HasDepthWarning}"
+                               ToolTip.Tip="More than one folder below Mods root — this script mod won't load." />
+                    <TextBlock Text="{Binding File.StatusText}" Opacity="0.75" />
+                  </StackPanel>
+                </Grid>
+              </TreeDataTemplate>
+            </TreeView.ItemTemplate>
+          </TreeView>
         </DockPanel>
       </Border>
 
