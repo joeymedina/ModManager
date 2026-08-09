@@ -335,10 +335,40 @@ properly" pass the outline deferred to):
   shared helper since this is the third copy of that logic (alongside
   `WickedWhimsUpdateStrategy`).
 
-**Phase 5 — Manual groups is deferred.** The doc's own reasoning still holds: `ModGroup`
-is already in the manifest shape and group operations are just
-`EnableAsync(root, group.Members)` once needed — small enough to add later. Ship adoption
-first and see whether groups still earn their place.
+## Phase 5 — Manual groups
+
+Groups turned out worth building. `docs/architecture/mod-listing-and-update-tracking.md`
+already specified the shape in more depth than this doc's original outline — grounded in
+that, plus decisions taken with the user:
+
+- **Purely cosmetic and virtual**, per the architecture doc: a group never moves files,
+  nothing in discovery/file-ops/update logic reads it, and a file belongs to zero or one
+  group (`ManifestFileEntry.GroupId` is a single nullable field, so this is enforced by the
+  model shape rather than extra validation).
+- **UI: a third list mode**, mutually exclusive with folder grouping — "Flat / By folder /
+  By group" — reusing phase 2's `TreeView` machinery. Selecting a group node flattens to
+  its members and feeds the existing `SelectedFiles`-driven Enable/Disable/Delete actions,
+  same as a folder node already does.
+- **Creation is select-files-then-name**: "Add to group..." opens an inline panel (same
+  pattern as Adopt/Install) where the user types a group name — matching an existing
+  group's name (case-insensitive) reuses it, anything else mints a new one. Reassigning a
+  file to a different group removes it from its previous one, since membership is
+  single-valued.
+- **New `LoadGroupsAsync`** on `IModsFolderRepository`/`IModsFolderUseCase`, returning the
+  raw `ModGroup` list rather than deriving groups from `ModFile.GroupId` alone — that's
+  what makes the architecture doc's "missing member" requirement possible: a member path
+  that no longer resolves to a discovered file still needs to render (as "missing") rather
+  than silently vanishing from the group, and `LoadFilesAsync`'s discovered-files list has
+  no way to represent a file that isn't there.
+- **`AddToGroupAsync`** validates all selected paths exist first (all-or-nothing, matching
+  `AdoptAsync`'s convention) — it's only ever called from the UI against currently-selected,
+  currently-discovered files, so unlike a group's `Members` list itself, there's no
+  legitimate "missing path" case to support here.
+- **Empty groups auto-prune.** When `RemoveFromGroupAsync` (the "Ungroup selected" action)
+  takes a group's last member, the now-empty `ModGroup` row is dropped, and a
+  `ManifestFileEntry` with no `DisplayName`/`GroupId`/`Notes` left is dropped too — matches
+  the sparse-manifest principle already used everywhere else ("a file with no user metadata
+  gets no row").
 
 ---
 
@@ -360,5 +390,5 @@ first and see whether groups still earn their place.
 - CLI regression: `dotnet run --project ModManager/ModManager.Cli -- --check` must still
   work unchanged after phase 1.
 - Phases 1–2 shipped via `feature/flat-mod-listing` (merged). Phase 3 shipped via
-  `feature/install-pipeline` (merged). Phase 4 branches fresh off `main` as
-  `feature/adoption-and-groups`, PR into `main`.
+  `feature/install-pipeline` (merged). Phase 4 shipped via `feature/adoption-and-groups`
+  (merged). Phase 5 branches fresh off `main` as `feature/manual-groups`, PR into `main`.
