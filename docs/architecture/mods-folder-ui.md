@@ -1,5 +1,11 @@
 # Mods Folder UI
 
+> **Superseded for anything UI-shaped.** The page was redesigned — see
+> [mods-page-redesign.md](./mods-page-redesign.md). The inline panels, the always-visible
+> bulk toolbar, and the in-page folder path box are gone. What remains accurate here is the
+> layering, the two-seam split between `IModsFolderUseCase` and `IArchiveInstallService`, the
+> command flow, the list-mode/selection model, and the browser download wiring.
+
 ## Context
 
 This document originally described a UI over grouped `ManagedMod` "packages". The
@@ -106,7 +112,7 @@ through `IModsFolderUseCase` or `IArchiveInstallService`.
 
 Registered in `ModManager.Ui/Extensions/ServiceCollectionExtensions.cs`:
 
-- `ModsPageViewModel` (transient)
+- `ModsPageViewModel` (**now singleton** — shared with the Settings page)
 - `MainViewModel` (transient)
 - `BrowsePageViewModel` (transient)
 
@@ -225,6 +231,11 @@ A completed download in the Browse page can jump straight into the install-from-
 
 ### Delete confirmation
 
+> **Out of date.** Delete now uses a real modal via `IDialogService.ConfirmAsync`, as do
+> install, adopt, and add-to-group. The reasoning below — that no dialog package was
+> available — no longer holds: FluentAvaloniaUI was added for exactly this. Deletion being
+> permanent, with no recycle bin, is still true.
+
 Delete is two-step: `RequestDeleteSelectedCommand` shows an inline confirmation bar
 ("Delete N file(s) permanently? [Delete] [Cancel]") rather than a modal dialog.
 `ModManager.Ui.csproj` references no dialog/message-box package and Avalonia ships none by
@@ -240,6 +251,8 @@ permanent — no recycle bin, since that would need a Windows-only API
 - Disabled path is not entered by the user; it is derived by backend layout resolution (`Mods` -> sibling `Mods.Disabled`).
 
 ### Design-time support
+
+> The design-time constructors now also take a `NoopDialogService` and a `SettingsStore`.
 
 `ModsPageViewModel()` and `MainViewModel()` parameterless constructors exist for the XAML
 designer. The design-time path uses private stub implementations of `IModsFolderUseCase`
