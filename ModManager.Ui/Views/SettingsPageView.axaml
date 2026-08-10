@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             x:Class="ModManager.Ui.Views.SettingsPageView"
+             x:DataType="vm:SettingsPageViewModel">
+  <Design.DataContext>
+    <vm:SettingsPageViewModel />
+  </Design.DataContext>
+
+  <ScrollViewer Padding="24">
+    <StackPanel Spacing="20" MaxWidth="720" HorizontalAlignment="Left">
+      <TextBlock Text="Settings" Theme="{DynamicResource TitleTextBlockStyle}" />
+
+      <Border Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+              BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+              BorderThickness="1"
+              CornerRadius="8"
+              Padding="16">
+        <StackPanel Spacing="12">
+          <StackPanel Spacing="2">
+            <TextBlock Text="Mods folder" FontWeight="SemiBold" />
+            <TextBlock Text="Where The Sims 4 loads mods from. Saved between launches."
+                       Opacity="0.7"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <TextBox Grid.Column="0"
+                     PlaceholderText="…\Documents\Electronic Arts\The Sims 4\Mods"
+                     Text="{Binding ModsFolderPath}" />
+            <Button Grid.Column="1" Content="Browse…" Command="{Binding BrowseCommand}" />
+            <Button Grid.Column="2"
+                    Content="Save"
+                    Classes="accent"
+                    Command="{Binding ApplyCommand}" />
+          </Grid>
+
+          <StackPanel Spacing="2">
+            <TextBlock Text="Disabled mods are moved here" Opacity="0.7" />
+            <TextBlock Text="{Binding DisabledModsFolderPath}"
+                       Opacity="0.7"
+                       TextWrapping="Wrap"
+                       FontFamily="{DynamicResource ContentControlThemeFontFamily}" />
+          </StackPanel>
+
+          <TextBlock Text="{Binding StatusMessage}"
+                     Opacity="0.8"
+                     TextWrapping="Wrap"
+                     IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

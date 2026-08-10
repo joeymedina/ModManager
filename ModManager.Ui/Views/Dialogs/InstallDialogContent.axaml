@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             x:Class="ModManager.Ui.Views.Dialogs.InstallDialogContent"
+             x:DataType="vm:ModsPageViewModel"
+             Width="520">
+  <StackPanel Spacing="12">
+    <StackPanel Spacing="4">
+      <TextBlock Text="Archive" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+        <TextBox Grid.Column="0"
+                 PlaceholderText="Path to a .zip, .package, or .ts4script file"
+                 Text="{Binding ArchivePathToInstall}"
+                 IsEnabled="{Binding !IsBusy}"
+                 LostFocus="OnArchivePathCommitted"
+                 KeyDown="OnArchivePathKeyDown" />
+        <Button Grid.Column="1"
+                Content="Browse…"
+                Command="{Binding BrowseForArchiveCommand}"
+                IsEnabled="{Binding !IsBusy}" />
+      </Grid>
+    </StackPanel>
+
+    <StackPanel Spacing="4" IsVisible="{Binding HasArchivePreview}">
+      <TextBlock Text="Install as" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <TextBox PlaceholderText="Mod folder name"
+               Text="{Binding InstallDisplayName}"
+               IsEnabled="{Binding !IsBusy}" />
+    </StackPanel>
+
+    <StackPanel Spacing="4" IsVisible="{Binding HasArchivePreview}">
+      <TextBlock Text="Files to install" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <ListBox ItemsSource="{Binding ArchivePreviewEntries}"
+               SelectionMode="Toggle"
+               MaxHeight="260"
+               IsEnabled="{Binding !IsBusy}">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:ArchiveEntryPreviewViewModel">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="0,2">
+              <CheckBox Grid.Column="0"
+                        IsChecked="{Binding IsSelected}"
+                        IsEnabled="{Binding IsInstallable}" />
+              <TextBlock Grid.Column="1"
+                         Text="{Binding EntryName}"
+                         VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis"
+                         ToolTip.Tip="{Binding EntryName}" />
+              <TextBlock Grid.Column="2"
+                         Text="{Binding KindLabel}"
+                         Opacity="0.6"
+                         VerticalAlignment="Center" />
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </StackPanel>
+
+    <TextBlock Text="{Binding InstallStatusMessage}"
+               TextWrapping="Wrap"
+               Opacity="0.8"
+               IsVisible="{Binding InstallStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+  </StackPanel>
+</UserControl>

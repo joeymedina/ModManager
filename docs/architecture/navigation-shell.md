@@ -1,5 +1,15 @@
 # Navigation Shell Architecture
 
+> **Partly superseded.** The shell now uses FluentAvalonia's `FANavigationView` with icons and
+> a fourth Settings page — see [mods-page-redesign.md](./mods-page-redesign.md). The navigation
+> *model* described here (nav items → `SelectedNavigationItem` → `CurrentPage` → `ViewLocator`)
+> is still exactly how it works.
+>
+> Note the "MainWindow updated" section below was already inaccurate before that change:
+> `MainWindow` does **not** use a `ContentControl` bound to `CurrentPage`. It caches each page
+> view in a `Panel` and toggles visibility, so navigating away and back doesn't rebuild the
+> page — which used to reload the Browse page's WebViews from scratch.
+
 ## Context
 
 The previous state of the UI exposed a single mods-management page directly in `MainWindow`. This change introduces a multi-page navigation shell so that Mods, Updates, and Browse pages can coexist under a single window with a sidebar navigation rail.
@@ -21,6 +31,7 @@ Related page documentation: [mods-folder-ui.md](./mods-folder-ui.md), [browse-pa
 | Mods | `ModsPageViewModel` | Default active page |
 | Updates | `UpdatesPageViewModel` | Placeholder (future `IModUpdateOrchestrator` integration) |
 | Browse | `BrowsePageViewModel` | Embedded browser with download support |
+| Settings | `SettingsPageViewModel` | Added later; mods folder path (see redesign doc) |
 
 ### MainWindow updated
 
@@ -73,7 +84,7 @@ Registered in `ModManager.Ui/Extensions/ServiceCollectionExtensions.cs`:
 
 | Type | Lifetime | Note |
 | --- | --- | --- |
-| `ModsPageViewModel` | Transient | Injected into `MainViewModel` constructor |
+| `ModsPageViewModel` | Singleton | Shared with `SettingsPageViewModel`, which changes its folder |
 | `UpdatesPageViewModel` | Transient | Injected into `MainViewModel` constructor |
 | `BrowsePageViewModel` | Transient | Injected into `MainViewModel` constructor |
 | `MainViewModel` | Transient | Constructed by DI; assigned as `MainWindow.DataContext` |

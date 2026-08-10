@@ -11,4 +11,5 @@ public sealed record ModFile(
     string? InstallId = null,
     string? Version = null,
     DateTime? InstalledUtc = null,
-    string? Provider = null);
+    string? Provider = null,
+    string? ModPageUrl = null);

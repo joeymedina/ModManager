@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModManager.Application.Interfaces;
 using ModManager.Application.Models;
+using ModManager.Ui.Services;
 
 namespace ModManager.Ui.ViewModels;
 
@@ -15,15 +16,27 @@ public enum ModsListMode
     Group,
 }
 
+public enum ModsStatusFilter
+{
+    All,
+    Enabled,
+    Disabled,
+}
+
 public partial class ModsPageViewModel : ViewModelBase
 {
+    private static readonly string[] InstallableExtensions = [".zip", ".package", ".ts4script"];
+
     private readonly IModsFolderUseCase _modsFolderUseCase;
     private readonly IArchiveInstallService _archiveInstallService;
+    private readonly IDialogService _dialogService;
+    private readonly SettingsStore _settings;
     private readonly ILogger<ModsPageViewModel> _logger;
     private List<ModFileViewModel> _allFiles = [];
     private List<ModGroup> _groups = [];
     private Uri? _pendingInstallSourceUri;
     private Uri? _pendingInstallModPageUri;
+    private string _previewedPath = string.Empty;
 
     public ObservableCollection<ModFileViewModel> Files { get; } = [];
 
@@ -37,13 +50,21 @@ public partial class ModsPageViewModel : ViewModelBase
 
     public ObservableCollection<ModGroupNodeViewModel> SelectedGroupNodes { get; } = [];
 
+    public ObservableCollection<ArchiveEntryPreviewViewModel> ArchivePreviewEntries { get; } = [];
+
+    public ObservableCollection<string> ExistingGroupNames { get; } = [];
+
+    public IReadOnlyList<ModsListMode> ListModes { get; } =
+        [ModsListMode.Flat, ModsListMode.Folder, ModsListMode.Group];
+
     [ObservableProperty]
     private ModsListMode _listMode = ModsListMode.Flat;
 
     [ObservableProperty]
-    private string _modsFolderPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-        "Electronic Arts\\The Sims 4\\Mods");
+    private ModsStatusFilter _statusFilter = ModsStatusFilter.All;
+
+    [ObservableProperty]
+    private string _modsFolderPath = string.Empty;
 
     [ObservableProperty]
     private string _disabledModsFolderPath = string.Empty;
@@ -52,27 +73,25 @@ public partial class ModsPageViewModel : ViewModelBase
     private string _searchText = string.Empty;
 
     [ObservableProperty]
-    private string _statusMessage = "Enter a mods folder path and click Refresh.";
+    private string _statusMessage = "Loading…";
+
+    [ObservableProperty]
+    private string _errorMessage = string.Empty;
 
     [ObservableProperty]
     private bool _isBusy;
 
     [ObservableProperty]
-    private string _detailHeader = "Select a file";
+    private int _selectedCount;
 
     [ObservableProperty]
-    private string _detailBody = string.Empty;
+    private ModFileViewModel? _detailFile;
 
     [ObservableProperty]
-    private bool _isDeleteConfirmationVisible;
+    private string _detailHeader = "Nothing selected";
 
     [ObservableProperty]
-    private string _deleteConfirmationMessage = string.Empty;
-
-    public ObservableCollection<ArchiveEntryPreviewViewModel> ArchivePreviewEntries { get; } = [];
-
-    [ObservableProperty]
-    private bool _isInstallPanelVisible;
+    private string _detailSubtitle = "Pick a mod file to see its details.";
 
     [ObservableProperty]
     private string _archivePathToInstall = string.Empty;
@@ -87,9 +106,6 @@ public partial class ModsPageViewModel : ViewModelBase
     private string _installStatusMessage = string.Empty;
 
     [ObservableProperty]
-    private bool _isAdoptPanelVisible;
-
-    [ObservableProperty]
     private string _adoptDisplayName = string.Empty;
 
     [ObservableProperty]
@@ -102,46 +118,76 @@ public partial class ModsPageViewModel : ViewModelBase
     private string _adoptStatusMessage = string.Empty;
 
     [ObservableProperty]
-    private bool _isAddToGroupPanelVisible;
-
-    [ObservableProperty]
     private string _groupNameInput = string.Empty;
 
     [ObservableProperty]
     private string _addToGroupStatusMessage = string.Empty;
 
-    public ObservableCollection<string> ExistingGroupNames { get; } = [];
+    public bool HasSelection => SelectedCount > 0;
+
+    public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
+
+    /// <summary>Just the folder name, for the page's breadcrumb-style header.</summary>
+    public string ModsFolderName
+    {
+        get
+        {
+            string trimmed = ModsFolderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string name = Path.GetFileName(trimmed);
+            return name.Length > 0 ? name : trimmed;
+        }
+    }
 
     public ModsPageViewModel()
-        : this(new DesignTimeModsFolderUseCase(), new DesignTimeArchiveInstallService())
+        : this(new DesignTimeModsFolderUseCase(), new DesignTimeArchiveInstallService(), new NoopDialogService(), new SettingsStore())
     {
     }
 
     public ModsPageViewModel(
         IModsFolderUseCase modsFolderUseCase,
         IArchiveInstallService archiveInstallService,
+        IDialogService dialogService,
+        SettingsStore settings,
         ILogger<ModsPageViewModel>? logger = null)
     {
         _modsFolderUseCase = modsFolderUseCase;
         _archiveInstallService = archiveInstallService;
+        _dialogService = dialogService;
+        _settings = settings;
         _logger = logger ?? NullLogger<ModsPageViewModel>.Instance;
+
+        ModsFolderPath = _settings.Load().ModsFolderPath ?? DefaultModsFolderPath();
+
         SelectedFiles.CollectionChanged += (_, _) => UpdateDetails();
         SelectedTreeNodes.CollectionChanged += (_, _) => SyncSelectedFilesFromTree();
         SelectedGroupNodes.CollectionChanged += (_, _) => SyncSelectedFilesFromGroupTree();
         UpdateLayoutPaths();
     }
 
+    private static string DefaultModsFolderPath() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+        "Electronic Arts",
+        "The Sims 4",
+        "Mods");
+
     /// <summary>
-    /// Opens the install panel pre-filled with a downloaded archive's path and runs its preview,
-    /// so the browser's "Install to Mods" prompt lands the user straight at the selection screen.
+    /// Opens the install dialog pre-filled with a downloaded archive's path, so the browser's
+    /// "Install to Mods" prompt lands the user straight at the file-selection step.
     /// </summary>
     public void BeginInstallFromFile(string archivePath, Uri? sourceUri = null, Uri? modPageUri = null)
     {
-        ArchivePathToInstall = archivePath;
         _pendingInstallSourceUri = sourceUri;
         _pendingInstallModPageUri = modPageUri;
-        IsInstallPanelVisible = true;
-        _ = PreviewInstallAsync();
+        _ = RunInstallFlowAsync(archivePath);
+    }
+
+    /// <summary>Applies a mods folder chosen elsewhere (the Settings page) and reloads.</summary>
+    public async Task SetModsFolderAsync(string path)
+    {
+        ModsFolderPath = path;
+        UpdateLayoutPaths();
+        _settings.Save(new AppSettings { ModsFolderPath = ModsFolderPath });
+        await RefreshAsync();
     }
 
     [RelayCommand]
@@ -154,12 +200,12 @@ public partial class ModsPageViewModel : ViewModelBase
 
         if (string.IsNullOrWhiteSpace(ModsFolderPath))
         {
-            StatusMessage = "Mods folder path is required.";
+            ErrorMessage = "No mods folder is set. Choose one in Settings.";
             return;
         }
 
         IsBusy = true;
-        StatusMessage = "Loading mods...";
+        StatusMessage = "Loading mods…";
 
         try
         {
@@ -168,7 +214,8 @@ public partial class ModsPageViewModel : ViewModelBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load mods from {ModsFolderPath}", ModsFolderPath);
-            StatusMessage = $"Failed to load mods: {ex.Message}";
+            ErrorMessage = $"Failed to load mods: {ex.Message}";
+            StatusMessage = "Load failed.";
         }
         finally
         {
@@ -186,107 +233,49 @@ public partial class ModsPageViewModel : ViewModelBase
         "Disabling", "Disabled",
         (root, paths, ct) => _modsFolderUseCase.DisableAsync(root, paths, ct));
 
+    /// <summary>Flips a single row's on/off switch without needing the selection bar.</summary>
     [RelayCommand]
-    private void RequestDeleteSelected()
+    private async Task ToggleFileAsync(ModFileViewModel? file)
     {
-        if (SelectedFiles.Count == 0)
-        {
-            StatusMessage = "Select one or more files first.";
-            return;
-        }
-
-        DeleteConfirmationMessage = $"Delete {SelectedFiles.Count} file(s) permanently? This cannot be undone.";
-        IsDeleteConfirmationVisible = true;
-    }
-
-    [RelayCommand]
-    private void CancelDeleteSelected()
-    {
-        IsDeleteConfirmationVisible = false;
-    }
-
-    [RelayCommand]
-    private async Task ConfirmDeleteSelectedAsync()
-    {
-        IsDeleteConfirmationVisible = false;
-        await RunBulkActionAsync(
-            "Deleting", "Deleted",
-            (root, paths, ct) => _modsFolderUseCase.DeleteAsync(root, paths, ct));
-    }
-
-    [RelayCommand]
-    private void SetListMode(ModsListMode mode) => ListMode = mode;
-
-    [RelayCommand]
-    private void RequestAdoptSelected()
-    {
-        if (SelectedFiles.Count == 0)
-        {
-            StatusMessage = "Select one or more files first.";
-            return;
-        }
-
-        IsAdoptPanelVisible = true;
-    }
-
-    [RelayCommand]
-    private async Task ConfirmAdoptAsync()
-    {
-        if (IsBusy)
+        if (file is null || IsBusy)
         {
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(ModsFolderPath))
-        {
-            StatusMessage = "Mods folder path is required.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(AdoptDisplayName))
-        {
-            AdoptStatusMessage = "Enter a name for this mod.";
-            return;
-        }
-
-        List<string> paths = [.. SelectedFiles.Select(file => file.RelativePath)];
-        if (paths.Count == 0)
-        {
-            AdoptStatusMessage = "Select one or more files first.";
-            return;
-        }
-
+        bool enabling = file.State != ModFileState.Enabled;
         IsBusy = true;
-        AdoptStatusMessage = "Adopting...";
 
         try
         {
-            string? modPageUrl = string.IsNullOrWhiteSpace(AdoptModPageUrl) ? null : AdoptModPageUrl.Trim();
-            string? version = string.IsNullOrWhiteSpace(AdoptVersion) ? null : AdoptVersion.Trim();
+            IReadOnlyList<ModFileFailure> failures = enabling
+                ? await _modsFolderUseCase.EnableAsync(ModsFolderPath.Trim(), [file.RelativePath], CancellationToken.None)
+                : await _modsFolderUseCase.DisableAsync(ModsFolderPath.Trim(), [file.RelativePath], CancellationToken.None);
 
-            ArchiveInstallResult<InstallRecord> result = await _modsFolderUseCase.AdoptAsync(
-                ModsFolderPath.Trim(),
-                paths,
-                AdoptDisplayName.Trim(),
-                modPageUrl,
-                version);
-
-            if (!result.Success)
+            if (failures.Count > 0)
             {
-                AdoptStatusMessage = result.Error ?? "Adopt failed.";
+                // Put the switch back where it was — the file did not move.
+                file.Refresh();
+                ErrorMessage = $"Could not {(enabling ? "enable" : "disable")} {file.Name}: {failures[0].Reason}";
                 return;
             }
 
-            string adoptedDisplayName = AdoptDisplayName;
-            IsAdoptPanelVisible = false;
-            ResetAdoptPanel();
-            await LoadFilesCoreAsync();
-            StatusMessage = $"Adopted {paths.Count} file(s) as \"{adoptedDisplayName}\".";
+            // Enable/disable only swaps which root the file sits under, so its relative path — and
+            // every other column — is unchanged. Patch the one row instead of rescanning the folder
+            // and rebuilding the list, which would drop the selection out from under the click.
+            file.State = enabling ? ModFileState.Enabled : ModFileState.Disabled;
+            file.Refresh();
+            if (StatusFilter != ModsStatusFilter.All)
+            {
+                // The row no longer matches the active chip, so it has to leave the list.
+                ApplyFilter();
+            }
+
+            StatusMessage = $"{(enabling ? "Enabled" : "Disabled")} {file.Name}.";
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Adopt of {FileCount} file(s) as \"{DisplayName}\" failed", paths.Count, AdoptDisplayName);
-            AdoptStatusMessage = $"Adopt failed: {ex.Message}";
+            _logger.LogError(ex, "Toggling {RelativePath} failed", file.RelativePath);
+            ErrorMessage = $"Could not toggle {file.Name}: {ex.Message}";
         }
         finally
         {
@@ -295,61 +284,172 @@ public partial class ModsPageViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void CancelAdopt()
+    private async Task DeleteSelectedAsync()
     {
-        IsAdoptPanelVisible = false;
-        ResetAdoptPanel();
+        if (!RequireSelection(out int count))
+        {
+            return;
+        }
+
+        bool confirmed = await _dialogService.ConfirmAsync(
+            "Delete files?",
+            $"Delete {count} file(s) permanently? This cannot be undone.",
+            "Delete",
+            isDestructive: true);
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        await RunBulkActionAsync(
+            "Deleting", "Deleted",
+            (root, paths, ct) => _modsFolderUseCase.DeleteAsync(root, paths, ct));
     }
 
-    private void ResetAdoptPanel()
+    [RelayCommand]
+    private void SetStatusFilter(ModsStatusFilter filter) => StatusFilter = filter;
+
+    [RelayCommand]
+    private void ClearSearch() => SearchText = string.Empty;
+
+    [RelayCommand]
+    private void DismissError() => ErrorMessage = string.Empty;
+
+    [RelayCommand]
+    private void OpenModPage()
     {
-        AdoptDisplayName = string.Empty;
+        if (DetailFile?.ModPageUrl is not { Length: > 0 } url)
+        {
+            return;
+        }
+
+        LaunchShell(url);
+    }
+
+    [RelayCommand]
+    private void RevealInExplorer()
+    {
+        if (DetailFile is not { } file)
+        {
+            return;
+        }
+
+        string root = file.State == ModFileState.Enabled ? ModsFolderPath : DisabledModsFolderPath;
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return;
+        }
+
+        string folder = Path.GetDirectoryName(Path.Combine(root, file.RelativePath)) ?? root;
+        LaunchShell(folder);
+    }
+
+    private void LaunchShell(string target)
+    {
+        try
+        {
+            using System.Diagnostics.Process? _ = System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not open {Target}", target);
+            ErrorMessage = $"Could not open {target}: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task AdoptSelectedAsync()
+    {
+        if (!RequireSelection(out int count))
+        {
+            return;
+        }
+
+        AdoptDisplayName = SelectedFiles.Count == 1
+            ? Path.GetFileNameWithoutExtension(SelectedFiles[0].Name)
+            : string.Empty;
         AdoptVersion = string.Empty;
         AdoptModPageUrl = string.Empty;
         AdoptStatusMessage = string.Empty;
-    }
 
-    [RelayCommand]
-    private void RequestAddToGroup()
-    {
-        if (SelectedFiles.Count == 0)
-        {
-            StatusMessage = "Select one or more files first.";
-            return;
-        }
-
-        IsAddToGroupPanelVisible = true;
-    }
-
-    [RelayCommand]
-    private async Task ConfirmAddToGroupAsync()
-    {
-        if (IsBusy)
+        if (!await _dialogService.ShowAsync("Adopt files", ModsDialog.Adopt, this, "Adopt"))
         {
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(ModsFolderPath))
+        await ConfirmAdoptAsync(count);
+    }
+
+    private async Task ConfirmAdoptAsync(int count)
+    {
+        if (string.IsNullOrWhiteSpace(AdoptDisplayName))
         {
-            StatusMessage = "Mods folder path is required.";
+            ErrorMessage = "Adopt needs a name for the mod.";
+            return;
+        }
+
+        List<string> paths = [.. SelectedFiles.Select(file => file.RelativePath)];
+        IsBusy = true;
+        StatusMessage = "Adopting…";
+
+        try
+        {
+            ArchiveInstallResult<InstallRecord> result = await _modsFolderUseCase.AdoptAsync(
+                ModsFolderPath.Trim(),
+                paths,
+                AdoptDisplayName.Trim(),
+                string.IsNullOrWhiteSpace(AdoptModPageUrl) ? null : AdoptModPageUrl.Trim(),
+                string.IsNullOrWhiteSpace(AdoptVersion) ? null : AdoptVersion.Trim());
+
+            if (!result.Success)
+            {
+                ErrorMessage = result.Error ?? "Adopt failed.";
+                StatusMessage = "Adopt failed.";
+                return;
+            }
+
+            string adopted = AdoptDisplayName;
+            await LoadFilesCoreAsync();
+            StatusMessage = $"Adopted {count} file(s) as \"{adopted}\".";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Adopt of {FileCount} file(s) as \"{DisplayName}\" failed", paths.Count, AdoptDisplayName);
+            ErrorMessage = $"Adopt failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task AddToGroupAsync()
+    {
+        if (!RequireSelection(out int count))
+        {
+            return;
+        }
+
+        GroupNameInput = string.Empty;
+        AddToGroupStatusMessage = string.Empty;
+
+        if (!await _dialogService.ShowAsync("Add to group", ModsDialog.AddToGroup, this, "Add"))
+        {
             return;
         }
 
         if (string.IsNullOrWhiteSpace(GroupNameInput))
         {
-            AddToGroupStatusMessage = "Enter a group name.";
+            ErrorMessage = "A group needs a name.";
             return;
         }
 
         List<string> paths = [.. SelectedFiles.Select(file => file.RelativePath)];
-        if (paths.Count == 0)
-        {
-            AddToGroupStatusMessage = "Select one or more files first.";
-            return;
-        }
-
         IsBusy = true;
-        AddToGroupStatusMessage = "Adding...";
+        StatusMessage = "Adding to group…";
 
         try
         {
@@ -360,74 +460,48 @@ public partial class ModsPageViewModel : ViewModelBase
 
             if (!result.Success)
             {
-                AddToGroupStatusMessage = result.Error ?? "Could not add to group.";
+                ErrorMessage = result.Error ?? "Could not add to group.";
+                StatusMessage = "Could not add to group.";
                 return;
             }
 
             string groupName = GroupNameInput;
-            IsAddToGroupPanelVisible = false;
-            ResetAddToGroupPanel();
             await LoadFilesCoreAsync();
-            StatusMessage = $"Added {paths.Count} file(s) to \"{groupName}\".";
+            StatusMessage = $"Added {count} file(s) to \"{groupName}\".";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Adding {FileCount} file(s) to group \"{GroupName}\" failed", paths.Count, GroupNameInput);
-            AddToGroupStatusMessage = $"Could not add to group: {ex.Message}";
+            ErrorMessage = $"Could not add to group: {ex.Message}";
         }
         finally
         {
             IsBusy = false;
         }
-    }
-
-    [RelayCommand]
-    private void CancelAddToGroup()
-    {
-        IsAddToGroupPanelVisible = false;
-        ResetAddToGroupPanel();
-    }
-
-    private void ResetAddToGroupPanel()
-    {
-        GroupNameInput = string.Empty;
-        AddToGroupStatusMessage = string.Empty;
     }
 
     [RelayCommand]
     private async Task UngroupSelectedAsync()
     {
-        if (IsBusy)
+        if (IsBusy || !RequireSelection(out int count))
         {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(ModsFolderPath))
-        {
-            StatusMessage = "Mods folder path is required.";
             return;
         }
 
         List<string> paths = [.. SelectedFiles.Select(file => file.RelativePath)];
-        if (paths.Count == 0)
-        {
-            StatusMessage = "Select one or more files first.";
-            return;
-        }
-
         IsBusy = true;
-        StatusMessage = $"Removing {paths.Count} file(s) from their group...";
+        StatusMessage = $"Removing {count} file(s) from their group…";
 
         try
         {
             await _modsFolderUseCase.RemoveFromGroupAsync(ModsFolderPath.Trim(), paths);
             await LoadFilesCoreAsync();
-            StatusMessage = $"Removed {paths.Count} file(s) from their group.";
+            StatusMessage = $"Removed {count} file(s) from their group.";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Ungrouping {FileCount} file(s) failed", paths.Count);
-            StatusMessage = $"Failed to ungroup: {ex.Message}";
+            ErrorMessage = $"Failed to ungroup: {ex.Message}";
         }
         finally
         {
@@ -436,12 +510,60 @@ public partial class ModsPageViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void RequestInstallFromFile()
+    private async Task InstallFromFileAsync()
     {
-        IsInstallPanelVisible = !IsInstallPanelVisible;
-        if (!IsInstallPanelVisible)
+        string? picked = await _dialogService.PickFileAsync("Choose a mod archive", InstallableExtensions);
+        if (picked is null)
+        {
+            return;
+        }
+
+        _pendingInstallSourceUri = null;
+        _pendingInstallModPageUri = null;
+        await RunInstallFlowAsync(picked);
+    }
+
+    /// <summary>Re-pick the archive from inside the install dialog, then re-run the preview.</summary>
+    [RelayCommand]
+    private async Task BrowseForArchiveAsync()
+    {
+        string? picked = await _dialogService.PickFileAsync("Choose a mod archive", InstallableExtensions);
+        if (picked is null)
+        {
+            return;
+        }
+
+        ArchivePathToInstall = picked;
+        await PreviewInstallAsync();
+    }
+
+    private async Task RunInstallFlowAsync(string archivePath)
+    {
+        ResetInstallPanel(keepSource: true);
+        ArchivePathToInstall = archivePath;
+        await PreviewInstallAsync();
+
+        if (await _dialogService.ShowAsync("Install mod", ModsDialog.Install, this, "Install"))
+        {
+            await ConfirmInstallAsync();
+        }
+        else
         {
             ResetInstallPanel();
+        }
+    }
+
+    /// <summary>
+    /// Re-reads the archive after the path box is edited by hand. Bound to the box losing focus
+    /// rather than to every keystroke, since a preview opens and walks the whole archive.
+    /// </summary>
+    [RelayCommand]
+    private async Task PreviewIfPathChangedAsync()
+    {
+        string path = ArchivePathToInstall.Trim();
+        if (path.Length > 0 && !string.Equals(path, _previewedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            await PreviewInstallAsync();
         }
     }
 
@@ -455,14 +577,16 @@ public partial class ModsPageViewModel : ViewModelBase
 
         if (string.IsNullOrWhiteSpace(ArchivePathToInstall))
         {
-            InstallStatusMessage = "Enter a file path first.";
+            InstallStatusMessage = "Choose a file first.";
             return;
         }
 
+        // Recorded even if the read fails, so a bad path isn't retried on every blur.
+        _previewedPath = ArchivePathToInstall.Trim();
         IsBusy = true;
         HasArchivePreview = false;
         ArchivePreviewEntries.Clear();
-        InstallStatusMessage = "Reading archive...";
+        InstallStatusMessage = "Reading archive…";
 
         try
         {
@@ -482,7 +606,7 @@ public partial class ModsPageViewModel : ViewModelBase
             HasArchivePreview = true;
             InstallStatusMessage = ArchivePreviewEntries.Count(entry => entry.IsInstallable) == 0
                 ? "No installable mod files found in this archive."
-                : "Review the selection below, then install.";
+                : string.Empty;
         }
         catch (Exception ex)
         {
@@ -495,35 +619,23 @@ public partial class ModsPageViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
     private async Task ConfirmInstallAsync()
     {
-        if (IsBusy)
-        {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(ModsFolderPath))
-        {
-            StatusMessage = "Mods folder path is required.";
-            return;
-        }
-
         if (string.IsNullOrWhiteSpace(InstallDisplayName))
         {
-            InstallStatusMessage = "Enter a name for this mod's folder.";
+            ErrorMessage = "Install needs a name for the mod's folder.";
             return;
         }
 
         HashSet<string> selected = [.. ArchivePreviewEntries.Where(entry => entry.IsSelected).Select(entry => entry.EntryName)];
         if (selected.Count == 0)
         {
-            InstallStatusMessage = "Select at least one file to install.";
+            ErrorMessage = "No files were selected to install.";
             return;
         }
 
         IsBusy = true;
-        InstallStatusMessage = "Installing...";
+        StatusMessage = "Installing…";
 
         try
         {
@@ -539,20 +651,21 @@ public partial class ModsPageViewModel : ViewModelBase
 
             if (!result.Success)
             {
-                InstallStatusMessage = result.Error ?? "Install failed.";
+                ErrorMessage = result.Error ?? "Install failed.";
+                StatusMessage = "Install failed.";
                 return;
             }
 
-            string installedDisplayName = InstallDisplayName;
-            IsInstallPanelVisible = false;
+            string installed = InstallDisplayName;
+            int fileCount = result.Value!.Files.Count;
             ResetInstallPanel();
             await LoadFilesCoreAsync();
-            StatusMessage = $"Installed {result.Value!.Files.Count} file(s) to \"{installedDisplayName}\".";
+            StatusMessage = $"Installed {fileCount} file(s) to \"{installed}\".";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Install of {ArchivePath} as \"{DisplayName}\" failed", ArchivePathToInstall, InstallDisplayName);
-            InstallStatusMessage = $"Install failed: {ex.Message}";
+            ErrorMessage = $"Install failed: {ex.Message}";
         }
         finally
         {
@@ -560,22 +673,31 @@ public partial class ModsPageViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
-    private void CancelInstall()
-    {
-        IsInstallPanelVisible = false;
-        ResetInstallPanel();
-    }
-
-    private void ResetInstallPanel()
+    private void ResetInstallPanel(bool keepSource = false)
     {
         ArchivePathToInstall = string.Empty;
         InstallDisplayName = string.Empty;
         InstallStatusMessage = string.Empty;
+        _previewedPath = string.Empty;
         HasArchivePreview = false;
         ArchivePreviewEntries.Clear();
-        _pendingInstallSourceUri = null;
-        _pendingInstallModPageUri = null;
+        if (!keepSource)
+        {
+            _pendingInstallSourceUri = null;
+            _pendingInstallModPageUri = null;
+        }
+    }
+
+    private bool RequireSelection(out int count)
+    {
+        count = SelectedFiles.Count;
+        if (count != 0)
+        {
+            return true;
+        }
+
+        StatusMessage = "Select one or more files first.";
+        return false;
     }
 
     private async Task RunBulkActionAsync(
@@ -583,54 +705,41 @@ public partial class ModsPageViewModel : ViewModelBase
         string resultLabel,
         Func<string, IReadOnlyList<string>, CancellationToken, Task<IReadOnlyList<ModFileFailure>>> action)
     {
-        if (IsBusy)
+        if (IsBusy || !RequireSelection(out _))
         {
             return;
         }
 
         if (string.IsNullOrWhiteSpace(ModsFolderPath))
         {
-            StatusMessage = "Mods folder path is required.";
+            ErrorMessage = "No mods folder is set. Choose one in Settings.";
             return;
         }
 
         List<string> paths = [.. SelectedFiles.Select(file => file.RelativePath)];
-        if (paths.Count == 0)
-        {
-            StatusMessage = "Select one or more files first.";
-            return;
-        }
-
         IsBusy = true;
-        StatusMessage = $"{progressLabel} {paths.Count} file(s)...";
+        StatusMessage = $"{progressLabel} {paths.Count} file(s)…";
 
         try
         {
             IReadOnlyList<ModFileFailure> failures = await action(ModsFolderPath.Trim(), paths, CancellationToken.None);
             await LoadFilesCoreAsync();
-            StatusMessage = BuildResultMessage(resultLabel, paths.Count, failures);
+            StatusMessage = $"{resultLabel} {paths.Count - failures.Count} file(s).";
+            if (failures.Count > 0)
+            {
+                ErrorMessage = $"{failures.Count} file(s) failed: "
+                    + string.Join("; ", failures.Select(failure => $"{failure.RelativePath}: {failure.Reason}"));
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Bulk {Operation} of {FileCount} file(s) failed", progressLabel, paths.Count);
-            StatusMessage = $"Failed while {progressLabel.ToLowerInvariant()}: {ex.Message}";
+            ErrorMessage = $"Failed while {progressLabel.ToLowerInvariant()}: {ex.Message}";
         }
         finally
         {
             IsBusy = false;
         }
-    }
-
-    private static string BuildResultMessage(string resultLabel, int total, IReadOnlyList<ModFileFailure> failures)
-    {
-        int succeeded = total - failures.Count;
-        if (failures.Count == 0)
-        {
-            return $"{resultLabel} {succeeded} file(s).";
-        }
-
-        string reasons = string.Join("; ", failures.Select(failure => $"{failure.RelativePath}: {failure.Reason}"));
-        return $"{resultLabel} {succeeded} file(s), {failures.Count} failed: {reasons}";
     }
 
     private async Task LoadFilesCoreAsync()
@@ -648,10 +757,18 @@ public partial class ModsPageViewModel : ViewModelBase
         ReplaceFiles(files);
         StatusMessage = files.Count == 0
             ? "No mod files found."
-            : $"Loaded {files.Count} file(s).";
+            : $"{files.Count} file(s) — {files.Count(file => file.State == ModFileState.Enabled)} enabled";
     }
 
     partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    partial void OnStatusFilterChanged(ModsStatusFilter value) => ApplyFilter();
+
+    partial void OnSelectedCountChanged(int value) => OnPropertyChanged(nameof(HasSelection));
+
+    partial void OnErrorMessageChanged(string value) => OnPropertyChanged(nameof(HasError));
+
+    partial void OnModsFolderPathChanged(string value) => OnPropertyChanged(nameof(ModsFolderName));
 
     private void ApplyFilter()
     {
@@ -661,9 +778,20 @@ public partial class ModsPageViewModel : ViewModelBase
         GroupTree.Clear();
         SelectedGroupNodes.Clear();
 
-        List<ModFileViewModel> filtered = [.. string.IsNullOrWhiteSpace(SearchText)
-            ? _allFiles
-            : _allFiles.Where(file => file.RelativePath.Contains(SearchText, StringComparison.OrdinalIgnoreCase))];
+        IEnumerable<ModFileViewModel> query = _allFiles;
+        if (!string.IsNullOrWhiteSpace(SearchText))
+        {
+            query = query.Where(file => file.RelativePath.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+        }
+
+        query = StatusFilter switch
+        {
+            ModsStatusFilter.Enabled => query.Where(file => file.State == ModFileState.Enabled),
+            ModsStatusFilter.Disabled => query.Where(file => file.State != ModFileState.Enabled),
+            _ => query,
+        };
+
+        List<ModFileViewModel> filtered = [.. query];
 
         foreach (ModFileViewModel file in filtered)
         {
@@ -691,11 +819,7 @@ public partial class ModsPageViewModel : ViewModelBase
             CollectFiles(node, files);
         }
 
-        SelectedFiles.Clear();
-        foreach (ModFileViewModel file in files)
-        {
-            SelectedFiles.Add(file);
-        }
+        ReplaceSelection(files);
     }
 
     private void SyncSelectedFilesFromGroupTree()
@@ -706,6 +830,11 @@ public partial class ModsPageViewModel : ViewModelBase
             CollectGroupFiles(node, files);
         }
 
+        ReplaceSelection(files);
+    }
+
+    private void ReplaceSelection(HashSet<ModFileViewModel> files)
+    {
         SelectedFiles.Clear();
         foreach (ModFileViewModel file in files)
         {
@@ -755,28 +884,27 @@ public partial class ModsPageViewModel : ViewModelBase
 
     private void UpdateDetails()
     {
+        SelectedCount = SelectedFiles.Count;
+
         if (SelectedFiles.Count == 0)
         {
-            DetailHeader = "Select a file";
-            DetailBody = string.Empty;
+            DetailFile = null;
+            DetailHeader = "Nothing selected";
+            DetailSubtitle = "Pick a mod file to see its details.";
         }
         else if (SelectedFiles.Count == 1)
         {
             ModFileViewModel file = SelectedFiles[0];
-            DetailHeader = file.DisplayName is { Length: > 0 } ? $"{file.DisplayName} ({file.Name})" : file.Name;
-            DetailBody = $"Folder: {(string.IsNullOrEmpty(file.Folder) ? "(root)" : file.Folder)}\n"
-                + $"Size: {file.SizeBytes:N0} bytes\n"
-                + $"Modified: {file.ModifiedUtc:u}\n"
-                + $"Status: {file.StatusText}"
-                + (file.Version is { Length: > 0 } ? $"\nVersion: {file.Version}" : string.Empty)
-                + (file.InstalledUtc is { } installedUtc ? $"\nInstalled: {installedUtc:u}" : string.Empty)
-                + (file.Provider is { Length: > 0 } ? $"\nSource: {file.Provider}" : string.Empty);
+            DetailFile = file;
+            DetailHeader = file.DisplayName is { Length: > 0 } name ? name : file.Name;
+            DetailSubtitle = file.DisplayName is { Length: > 0 } ? file.Name : file.FolderText;
         }
         else
         {
-            long totalBytes = SelectedFiles.Sum(file => file.SizeBytes);
+            DetailFile = null;
             DetailHeader = $"{SelectedFiles.Count} files selected";
-            DetailBody = $"Total size: {totalBytes:N0} bytes";
+            long totalBytes = SelectedFiles.Sum(file => file.SizeBytes);
+            DetailSubtitle = $"{totalBytes / 1024.0 / 1024.0:0.#} MB total";
         }
     }
 
@@ -800,8 +928,21 @@ public partial class ModsPageViewModel : ViewModelBase
             // leaving the user to discover it when a command does nothing.
             _logger.LogWarning(ex, "Could not resolve the mods folder layout for {ModsFolderPath}", ModsFolderPath);
             DisabledModsFolderPath = string.Empty;
-            StatusMessage = $"Could not resolve that mods folder path: {ex.Message}";
+            ErrorMessage = $"Could not resolve that mods folder path: {ex.Message}";
         }
+    }
+
+    private sealed class NoopDialogService : IDialogService
+    {
+        public Task<bool> ShowAsync(string title, ModsDialog dialog, object dataContext, string primaryText)
+            => Task.FromResult(false);
+
+        public Task<bool> ConfirmAsync(string title, string message, string primaryText, bool isDestructive = false)
+            => Task.FromResult(false);
+
+        public Task<string?> PickFileAsync(string title, IReadOnlyList<string> extensions) => Task.FromResult<string?>(null);
+
+        public Task<string?> PickFolderAsync(string title, string? startPath) => Task.FromResult<string?>(null);
     }
 
     private sealed class DesignTimeModsFolderUseCase : IModsFolderUseCase

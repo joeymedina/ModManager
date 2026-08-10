@@ -107,6 +107,7 @@ public sealed class ModsFolderService : IModsFolderRepository
             Version = record?.Version,
             InstalledUtc = record?.InstalledUtc,
             Provider = record?.Source.Provider,
+            ModPageUrl = record?.Source.ModPageUrl,
         };
     }
 
@@ -163,7 +164,11 @@ public sealed class ModsFolderService : IModsFolderRepository
             _logger.LogWarning("Cannot set {RelativePath} to {TargetState}: it exists under both roots and must be resolved first", file.RelativePath, targetState);
         }
 
-        failures.AddRange(conflicted.Select(file => new ModFileFailure(file.RelativePath, "File is conflicted; resolve before changing state.")));
+        // This reason is shown verbatim to the user, so it names the cause and the fix rather than
+        // just the internal state name.
+        failures.AddRange(conflicted.Select(file => new ModFileFailure(
+            file.RelativePath,
+            "a copy exists in both the Mods and Mods.Disabled folders — delete the one you don't want, then try again")));
 
         List<ModFile> actionable = [.. matched.Where(file => !file.IsConflicted)];
         IReadOnlyList<ModFileFailure> moveFailures = await _fileOperationsService.MoveFilesForStateChangeAsync(actionable, targetState, layout, cancellationToken);

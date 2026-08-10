@@ -11,7 +11,11 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddSingleton<BrowserDownloadService>();
-        services.AddTransient<ModsPageViewModel>();
+        services.AddSingleton<SettingsStore>();
+        services.AddSingleton<IDialogService, DialogService>();
+        // The Settings page mutates the Mods page's folder, so both must see the same instance.
+        services.AddSingleton<ModsPageViewModel>();
+        services.AddSingleton<SettingsPageViewModel>();
         services.AddTransient<UpdatesPageViewModel>();
         services.AddTransient<BrowsePageViewModel>();
         services.AddTransient<MainViewModel>();
