@@ -1,5 +1,12 @@
 # Flat Mod Listing + Install Records
 
+Status: **all five phases shipped and merged to `main`** (PRs #4–#8). This document is kept
+as the implementation log — each phase section below records the decisions actually taken,
+in the order they were taken, including the mid-phase refinements. For the current
+end-state architecture (not the phase-by-phase history), see
+[docs/architecture/mods-folder-service.md](architecture/mods-folder-service.md) and
+[docs/architecture/mods-folder-ui.md](architecture/mods-folder-ui.md).
+
 ## Context
 
 `ModsDiscoveryService.DerivePackageKey` guesses which files form a "package" by taking the
@@ -10,9 +17,11 @@ the manifest on every read.
 
 Per `ModManager/docs/architecture/mod-listing-and-update-tracking.md`, we split the three
 concerns the heuristic conflates: **discovery lists files**, **grouping is a user action**,
-**updating is driven by install records**. This plan covers phases 1–3 of that doc
-(flat listing, folder view, install pipeline + records) and outlines 4–5. **Phase 1 is
-the current slice and ships on its own**; phases 2–3 are specified here but not started.
+**updating is driven by install records**. This plan covers all five phases of that doc:
+flat listing, folder view, install pipeline + records, adoption, and manual groups. Each
+phase's spec below was written and refined immediately before that phase started (not all
+up front), which is why later phases cite decisions and code that didn't exist yet when
+phase 1 shipped.
 
 Decisions taken with the user:
 - Manifest moves **into the Mods folder** so organization survives reinstall — but it
@@ -375,20 +384,31 @@ that, plus decisions taken with the user:
 ## Verification
 
 - `dotnet build ModManager/ModManager.slnx` and `dotnet test ModManager/ModManager.slnx`.
-  Existing suites: `ModsFolderServiceTests` (real filesystem), `ModsFolderUseCaseTests`
-  (Moq), `ModUpdateOrchestratorTests`.
-- New infrastructure tests against a temp sandbox — **phase 1**: reads write nothing;
+  33 tests passing as of phase 5: `ModsFolderServiceTests` (real filesystem — enable/
+  disable/delete, conflict handling, adoption, groups), `ModsFolderUseCaseTests` (Moq),
+  `ArchiveInstallServiceTests`, `ModUpdateOrchestratorTests`.
+- Infrastructure tests against a temp sandbox, by phase — **1**: reads write nothing;
   conflicted path; nested-path enable/disable round trip; partial-failure reporting.
-  **Phase 3**: archive install writes only selected entries and flattens a deep
-  `.ts4script`; update deletes stale paths from the prior record.
+  **3**: archive install writes only selected entries and flattens a deep `.ts4script`.
+  **4**: adoption writes without moving files, fails cleanly on a missing path. **5**:
+  group creation/reuse-by-name, moving a file between groups, auto-pruning an emptied
+  group, a missing member still surfacing from `LoadGroupsAsync`.
 - Manual, phase 1: run `ModManager.Ui`, point it at a scratch Mods folder with nested
   subfolders, confirm multi-select bulk enable/disable, the delete confirm bar, search by
   folder name, and that no `Mods.Disabled` appears from a plain refresh.
 - Manual, phase 3: a deliberately mixed archive (packages + readme + an `Optional/`
-  variant), confirm the preview classifies correctly and the folder view groups as
-  expected.
+  variant), confirm the preview classifies correctly; a real native WebView2 download
+  (served from a local test server) correctly populates both `ModPageUrl` and `DownloadUrl`
+  on the resulting `InstallRecord`.
+- Manual, phase 4: adopt a pre-existing untracked file, confirm it isn't moved and the
+  Details pane picks up its new `DisplayName`/`Version`/install date.
+- Manual, phase 5: create a group via the "Add to group" panel (including picking an
+  existing group from the `AutoCompleteBox` dropdown rather than retyping it), bulk-act via
+  a selected group node, delete a member's file on disk and confirm it renders as
+  "(missing)" instead of vanishing.
 - CLI regression: `dotnet run --project ModManager/ModManager.Cli -- --check` must still
-  work unchanged after phase 1.
-- Phases 1–2 shipped via `feature/flat-mod-listing` (merged). Phase 3 shipped via
-  `feature/install-pipeline` (merged). Phase 4 shipped via `feature/adoption-and-groups`
-  (merged). Phase 5 branches fresh off `main` as `feature/manual-groups`, PR into `main`.
+  work unchanged after phase 1, and again after phase 3's `WickedWhimsUpdateStrategy`
+  rewrite (verified against a synthetic Mods folder with a detectable version marker).
+- Shipped via, in order: `feature/flat-mod-listing` (phases 1–2, PR #4/#5),
+  `feature/install-pipeline` (phase 3, PR #6), `feature/adoption-and-groups` (phase 4,
+  PR #7), `feature/manual-groups` (phase 5, PR #8). All merged to `main`.

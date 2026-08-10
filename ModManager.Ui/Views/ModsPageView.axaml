@@ -186,7 +186,7 @@
           <Grid ColumnDefinitions="Auto,*">
             <TextBlock Grid.Column="0" Text="Group" VerticalAlignment="Center" Margin="0,0,8,0" />
             <AutoCompleteBox Grid.Column="1"
-                              Watermark="Pick an existing group or type a new name"
+                              PlaceholderText="Pick an existing group or type a new name"
                               ItemsSource="{Binding ExistingGroupNames}"
                               Text="{Binding GroupNameInput}"
                               FilterMode="Contains"
