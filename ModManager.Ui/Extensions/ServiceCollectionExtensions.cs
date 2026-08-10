@@ -12,6 +12,7 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<BrowserDownloadService>();
         services.AddSingleton<SettingsStore>();
+        services.AddSingleton<ThemeService>();
         services.AddSingleton<IDialogService, DialogService>();
         // The Settings page mutates the Mods page's folder, so both must see the same instance.
         services.AddSingleton<ModsPageViewModel>();

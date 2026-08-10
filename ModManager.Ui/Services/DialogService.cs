@@ -8,13 +8,14 @@ namespace ModManager.Ui.Services;
 
 public sealed class DialogService : IDialogService
 {
-    public async Task<bool> ShowAsync(string title, ModsDialog dialog, object dataContext, string primaryText)
+    public async Task<bool> ShowAsync(string title, AppDialog dialog, object dataContext, string primaryText)
     {
         Control content = dialog switch
         {
-            ModsDialog.Install => new InstallDialogContent(),
-            ModsDialog.Adopt => new AdoptDialogContent(),
-            ModsDialog.AddToGroup => new AddToGroupDialogContent(),
+            AppDialog.Install => new InstallDialogContent(),
+            AppDialog.Adopt => new AdoptDialogContent(),
+            AppDialog.AddToGroup => new AddToGroupDialogContent(),
+            AppDialog.ThemeEditor => new ThemeEditorDialogContent(),
             _ => throw new ArgumentOutOfRangeException(nameof(dialog)),
         };
 
@@ -47,7 +48,7 @@ public sealed class DialogService : IDialogService
         return await ShowCoreAsync(dialog) == FAContentDialogResult.Primary;
     }
 
-    public async Task<string?> PickFileAsync(string title, IReadOnlyList<string> extensions)
+    public async Task<string?> PickFileAsync(string title, IReadOnlyList<string> extensions, string filterLabel = "Mod files")
     {
         if (GetStorageProvider() is not { } storage)
         {
@@ -60,7 +61,7 @@ public sealed class DialogService : IDialogService
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("Mod files")
+                new FilePickerFileType(filterLabel)
                 {
                     Patterns = [.. extensions.Select(extension => $"*{extension}")],
                 },
@@ -69,6 +70,27 @@ public sealed class DialogService : IDialogService
         });
 
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+    }
+
+    public async Task<string?> SaveFileAsync(string title, string suggestedFileName, string extension, string filterLabel)
+    {
+        if (GetStorageProvider() is not { } storage)
+        {
+            return null;
+        }
+
+        IStorageFile? file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = title,
+            SuggestedFileName = suggestedFileName,
+            DefaultExtension = extension,
+            FileTypeChoices =
+            [
+                new FilePickerFileType(filterLabel) { Patterns = [$"*{extension}"] },
+            ],
+        });
+
+        return file?.TryGetLocalPath();
     }
 
     public async Task<string?> PickFolderAsync(string title, string? startPath)

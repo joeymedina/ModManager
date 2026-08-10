@@ -45,13 +45,43 @@
                        TextWrapping="Wrap"
                        FontFamily="{DynamicResource ContentControlThemeFontFamily}" />
           </StackPanel>
-
-          <TextBlock Text="{Binding StatusMessage}"
-                     Opacity="0.8"
-                     TextWrapping="Wrap"
-                     IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
       </Border>
+
+      <Border Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+              BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+              BorderThickness="1"
+              CornerRadius="8"
+              Padding="16">
+        <StackPanel Spacing="12">
+          <StackPanel Spacing="2">
+            <TextBlock Text="Theme" FontWeight="SemiBold" />
+            <TextBlock Text="Colors and typography. Selecting a theme applies it immediately."
+                       Opacity="0.7"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+
+          <ComboBox ItemsSource="{Binding AvailableThemes}"
+                    SelectedItem="{Binding SelectedTheme}"
+                    DisplayMemberBinding="{Binding Name}"
+                    MinWidth="220"
+                    HorizontalAlignment="Left" />
+
+          <WrapPanel>
+            <Button Content="Edit…" Classes="accent" Command="{Binding EditThemeCommand}" Margin="0,0,8,8" />
+            <Button Content="Duplicate" Command="{Binding DuplicateThemeCommand}" Margin="0,0,8,8" />
+            <Button Content="Delete" Command="{Binding DeleteThemeCommand}" Margin="0,0,8,8" />
+            <Button Content="Import…" Command="{Binding ImportThemeCommand}" Margin="0,0,8,8" />
+            <Button Content="Export…" Command="{Binding ExportThemeCommand}" Margin="0,0,8,8" />
+            <Button Content="Reset to default" Command="{Binding ResetThemeCommand}" Margin="0,0,8,8" />
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+
+      <TextBlock Text="{Binding StatusMessage}"
+                 Opacity="0.8"
+                 TextWrapping="Wrap"
+                 IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
     </StackPanel>
   </ScrollViewer>
 </UserControl>
