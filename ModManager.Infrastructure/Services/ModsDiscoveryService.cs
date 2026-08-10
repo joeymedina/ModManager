@@ -1,10 +1,14 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ModManager.Application.Models;
 
 namespace ModManager.Infrastructure.Services;
 
-public sealed class ModsDiscoveryService
+public sealed class ModsDiscoveryService(ILogger<ModsDiscoveryService>? logger = null)
 {
     private static readonly HashSet<string> SupportedExtensions = [".package", ".ts4script"];
+
+    private readonly ILogger<ModsDiscoveryService> _logger = logger ?? NullLogger<ModsDiscoveryService>.Instance;
 
     /// <summary>
     /// Discovers mod files from active and disabled folders as a flat, sorted list. Pure: never writes.
@@ -21,12 +25,29 @@ public sealed class ModsDiscoveryService
             byPath[file.RelativePath] = file;
         }
 
+        int enabledCount = byPath.Count;
+        int conflictedCount = 0;
+
         foreach (ModFile file in EnumerateModFiles(layout.DisabledModsFolderPath, ModFileState.Disabled))
         {
-            byPath[file.RelativePath] = byPath.TryGetValue(file.RelativePath, out ModFile? existing)
-                ? existing with { IsConflicted = true }
-                : file;
+            if (byPath.TryGetValue(file.RelativePath, out ModFile? existing))
+            {
+                byPath[file.RelativePath] = existing with { IsConflicted = true };
+                conflictedCount++;
+            }
+            else
+            {
+                byPath[file.RelativePath] = file;
+            }
         }
+
+        _logger.LogDebug(
+            "Discovery: {EnabledCount} enabled in {ModsFolder}, {DisabledCount} disabled in {DisabledFolder}, {ConflictedCount} present in both",
+            enabledCount,
+            layout.ModsFolderPath,
+            byPath.Count - enabledCount,
+            layout.DisabledModsFolderPath,
+            conflictedCount);
 
         return [.. byPath.Values.OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)];
     }

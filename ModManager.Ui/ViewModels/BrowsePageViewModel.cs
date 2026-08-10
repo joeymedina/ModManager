@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using ModManager.Ui.Services;
 
 namespace ModManager.Ui.ViewModels;
@@ -8,6 +9,7 @@ namespace ModManager.Ui.ViewModels;
 public partial class BrowsePageViewModel : ViewModelBase
 {
     private readonly BrowserDownloadService _downloadService;
+    private readonly ILogger<BrowserTabViewModel>? _tabLogger;
 
     [ObservableProperty]
     private BrowserTabViewModel? _selectedTab;
@@ -23,9 +25,10 @@ public partial class BrowsePageViewModel : ViewModelBase
     {
     }
 
-    public BrowsePageViewModel(BrowserDownloadService downloadService)
+    public BrowsePageViewModel(BrowserDownloadService downloadService, ILogger<BrowserTabViewModel>? tabLogger = null)
     {
         _downloadService = downloadService;
+        _tabLogger = tabLogger;
         AddTab();
     }
 
@@ -59,7 +62,7 @@ public partial class BrowsePageViewModel : ViewModelBase
 
     private BrowserTabViewModel AddTab()
     {
-        BrowserTabViewModel tab = new(_downloadService, BeginDownload);
+        BrowserTabViewModel tab = new(_downloadService, BeginDownload, _tabLogger);
         tab.CloseRequested += OnTabCloseRequested;
         Tabs.Add(tab);
         SelectedTab = tab;

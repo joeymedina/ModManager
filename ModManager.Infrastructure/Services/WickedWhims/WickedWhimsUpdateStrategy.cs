@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ModManager.Application.Interfaces;
 using ModManager.Application.Models;
 using ModManager.Infrastructure.Services;
@@ -9,9 +11,12 @@ internal sealed class WickedWhimsUpdateStrategy(
     ModsFolderPathService pathService,
     ModsManifestService manifestService,
     WickedWhimsVersionDetector versionDetector,
-    WickedWhimsReleaseClient releaseClient) : IModUpdateStrategy
+    WickedWhimsReleaseClient releaseClient,
+    ILogger<WickedWhimsUpdateStrategy>? logger = null) : IModUpdateStrategy
 {
     public const string StrategyModId = "wickedwhims";
+
+    private readonly ILogger<WickedWhimsUpdateStrategy> _logger = logger ?? NullLogger<WickedWhimsUpdateStrategy>.Instance;
 
     public string ModId => StrategyModId;
 
@@ -44,10 +49,19 @@ internal sealed class WickedWhimsUpdateStrategy(
         bool downloadPerformed = false;
         int installedFileCount = 0;
 
+        _logger.LogInformation(
+            "WickedWhims check in {InstallRoot}: installed v{InstalledVersion} (from {VersionSource}), latest v{LatestVersion}, comparison {Comparison}",
+            installRoot,
+            installedVersion.Version,
+            installedVersion.Source,
+            latestRelease.Version,
+            comparison);
+
         if (comparison < 0 && request.DownloadIfUpdateAvailable)
         {
             WickedWhimsDownload download = await releaseClient.DownloadLatestArchiveAsync(cancellationToken);
             IReadOnlyList<InstallRecordFile> newFiles = ExtractArchive(installRoot, download.Bytes);
+            _logger.LogInformation("Extracted {FileCount} WickedWhims v{Version} file(s) into {InstallRoot}", newFiles.Count, latestRelease.Version, installRoot);
 
             DeleteStaleFiles(installRoot, previousRecord, newFiles);
 
@@ -95,7 +109,7 @@ internal sealed class WickedWhimsUpdateStrategy(
         return livesInDisabledRoot ? layout.DisabledModsFolderPath : layout.ModsFolderPath;
     }
 
-    private static void DeleteStaleFiles(string installRoot, InstallRecord? previousRecord, IReadOnlyList<InstallRecordFile> newFiles)
+    private void DeleteStaleFiles(string installRoot, InstallRecord? previousRecord, IReadOnlyList<InstallRecordFile> newFiles)
     {
         if (previousRecord is null)
         {
@@ -108,7 +122,10 @@ internal sealed class WickedWhimsUpdateStrategy(
             string stalePath = Path.Combine(installRoot, staleFile.RelativePath);
             if (File.Exists(stalePath))
             {
+                // Inferred from the previous install record, not chosen by the user — log every path so
+                // a wrong record is traceable after the fact.
                 File.Delete(stalePath);
+                _logger.LogInformation("Deleted stale WickedWhims file from install {InstallId}: {DeletedPath}", previousRecord.InstallId, stalePath);
             }
         }
     }
@@ -138,7 +155,7 @@ internal sealed class WickedWhimsUpdateStrategy(
     /// Extracts every file entry of a zip archive into <paramref name="folder"/>, flat (WickedWhims
     /// ships a flat file set, not a subfoldered mod), guarding against zip-slip path traversal.
     /// </summary>
-    private static IReadOnlyList<InstallRecordFile> ExtractArchive(string folder, byte[] bytes)
+    private IReadOnlyList<InstallRecordFile> ExtractArchive(string folder, byte[] bytes)
     {
         Directory.CreateDirectory(folder);
         using ZipArchive archive = new(new MemoryStream(bytes), ZipArchiveMode.Read);
@@ -151,6 +168,7 @@ internal sealed class WickedWhimsUpdateStrategy(
             string target = Path.GetFullPath(Path.Combine(folder, entry.FullName));
             if (!target.StartsWith(root, StringComparison.Ordinal))
             {
+                _logger.LogWarning("Rejected WickedWhims archive entry escaping {InstallRoot}: {EntryName}", folder, entry.FullName);
                 throw new InvalidOperationException($"Unsafe archive path: {entry.FullName}");
             }
 
@@ -163,10 +181,18 @@ internal sealed class WickedWhimsUpdateStrategy(
             Directory.CreateDirectory(directory);
             entry.ExtractToFile(target, overwrite: true);
 
-            written.Add(new InstallRecordFile(
+            InstallRecordFile writtenFile = new(
                 Path.GetRelativePath(folder, target).Replace(Path.DirectorySeparatorChar, '/'),
                 FileHashing.ComputeSha256(target),
-                new FileInfo(target).Length));
+                new FileInfo(target).Length);
+            written.Add(writtenFile);
+
+            _logger.LogDebug(
+                "Extracted {EntryName} to {RelativePath} ({SizeBytes} bytes, sha256 {Sha256})",
+                entry.FullName,
+                writtenFile.RelativePath,
+                writtenFile.SizeBytes,
+                writtenFile.Sha256);
         }
 
         return written;

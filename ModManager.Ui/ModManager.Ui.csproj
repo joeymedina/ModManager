@@ -23,6 +23,8 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="DistillNET" Version="1.6.6" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2957.106" GeneratePathProperty="true" ExcludeAssets="all" />
+    <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
   </ItemGroup>
 

@@ -2,11 +2,13 @@
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ModManager.Application.Extensions;
 using ModManager.Infrastructure.Extensions;
 using ModManager.Ui.Extensions;
 using ModManager.Ui.ViewModels;
 using ModManager.Ui.Views;
+using Serilog;
 using System;
 using System.Threading.Tasks;
 
@@ -24,18 +26,24 @@ public partial class App : Avalonia.Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             ServiceCollection collection = new();
+            collection.AddLogging(builder => builder.AddSerilog());
             collection.AddApplicationServices();
             collection.AddInfrastructureServices();
             collection.AddUiServices();
 
             IServiceProvider services = collection.BuildServiceProvider();
-           
+
+            ILogger<App> logger = services.GetRequiredService<ILogger<App>>();
+            logger.LogInformation("Service provider built");
+
             MainViewModel vm = services.GetRequiredService<MainViewModel>();
 
             desktop.MainWindow = new MainWindow
             {
                 DataContext = vm,
             };
+
+            logger.LogInformation("Main window created");
         }
 
         base.OnFrameworkInitializationCompleted();

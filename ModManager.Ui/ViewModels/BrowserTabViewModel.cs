@@ -2,6 +2,8 @@ using System.Net;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ModManager.Ui.Services;
 
 namespace ModManager.Ui.ViewModels;
@@ -12,6 +14,7 @@ public partial class BrowserTabViewModel : ViewModelBase
 
     private readonly BrowserDownloadService _downloadService;
     private readonly Func<string, Uri?, Action, DownloadItemViewModel> _beginDownload;
+    private readonly ILogger<BrowserTabViewModel> _logger;
     private CancellationTokenSource? _downloadCts;
     private DownloadItemViewModel? _activeDownload;
 
@@ -57,10 +60,12 @@ public partial class BrowserTabViewModel : ViewModelBase
 
     public BrowserTabViewModel(
         BrowserDownloadService downloadService,
-        Func<string, Uri?, Action, DownloadItemViewModel> beginDownload)
+        Func<string, Uri?, Action, DownloadItemViewModel> beginDownload,
+        ILogger<BrowserTabViewModel>? logger = null)
     {
         _downloadService = downloadService;
         _beginDownload = beginDownload;
+        _logger = logger ?? NullLogger<BrowserTabViewModel>.Instance;
     }
 
     [RelayCommand]
@@ -285,6 +290,7 @@ public partial class BrowserTabViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Download from {DownloadUri} failed", uri);
             download.MarkFailed(ex.Message);
             StatusMessage = $"Download failed: {ex.Message}";
         }
@@ -306,10 +312,13 @@ public partial class BrowserTabViewModel : ViewModelBase
         {
             IReadOnlyList<Cookie> cookies = await CookiesRequested.Invoke();
             _downloadService.ApplyCookies(cookies);
+            // Count only — cookie values are live session credentials and must never be logged.
+            _logger.LogDebug("Applied {CookieCount} webview cookie(s) to the download client", cookies.Count);
         }
-        catch
+        catch (Exception ex)
         {
             // Cookies are best-effort for authenticated downloads.
+            _logger.LogDebug(ex, "Could not apply webview cookies; an authenticated download may fail");
         }
     }
 

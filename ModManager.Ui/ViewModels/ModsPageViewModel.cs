@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ModManager.Application.Interfaces;
 using ModManager.Application.Models;
 
@@ -17,6 +19,7 @@ public partial class ModsPageViewModel : ViewModelBase
 {
     private readonly IModsFolderUseCase _modsFolderUseCase;
     private readonly IArchiveInstallService _archiveInstallService;
+    private readonly ILogger<ModsPageViewModel> _logger;
     private List<ModFileViewModel> _allFiles = [];
     private List<ModGroup> _groups = [];
     private Uri? _pendingInstallSourceUri;
@@ -114,10 +117,14 @@ public partial class ModsPageViewModel : ViewModelBase
     {
     }
 
-    public ModsPageViewModel(IModsFolderUseCase modsFolderUseCase, IArchiveInstallService archiveInstallService)
+    public ModsPageViewModel(
+        IModsFolderUseCase modsFolderUseCase,
+        IArchiveInstallService archiveInstallService,
+        ILogger<ModsPageViewModel>? logger = null)
     {
         _modsFolderUseCase = modsFolderUseCase;
         _archiveInstallService = archiveInstallService;
+        _logger = logger ?? NullLogger<ModsPageViewModel>.Instance;
         SelectedFiles.CollectionChanged += (_, _) => UpdateDetails();
         SelectedTreeNodes.CollectionChanged += (_, _) => SyncSelectedFilesFromTree();
         SelectedGroupNodes.CollectionChanged += (_, _) => SyncSelectedFilesFromGroupTree();
@@ -160,6 +167,7 @@ public partial class ModsPageViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to load mods from {ModsFolderPath}", ModsFolderPath);
             StatusMessage = $"Failed to load mods: {ex.Message}";
         }
         finally
@@ -277,6 +285,7 @@ public partial class ModsPageViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Adopt of {FileCount} file(s) as \"{DisplayName}\" failed", paths.Count, AdoptDisplayName);
             AdoptStatusMessage = $"Adopt failed: {ex.Message}";
         }
         finally
@@ -363,6 +372,7 @@ public partial class ModsPageViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Adding {FileCount} file(s) to group \"{GroupName}\" failed", paths.Count, GroupNameInput);
             AddToGroupStatusMessage = $"Could not add to group: {ex.Message}";
         }
         finally
@@ -416,6 +426,7 @@ public partial class ModsPageViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Ungrouping {FileCount} file(s) failed", paths.Count);
             StatusMessage = $"Failed to ungroup: {ex.Message}";
         }
         finally
@@ -475,6 +486,7 @@ public partial class ModsPageViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Could not preview archive {ArchivePath}", ArchivePathToInstall);
             InstallStatusMessage = $"Could not read the archive: {ex.Message}";
         }
         finally
@@ -539,6 +551,7 @@ public partial class ModsPageViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Install of {ArchivePath} as \"{DisplayName}\" failed", ArchivePathToInstall, InstallDisplayName);
             InstallStatusMessage = $"Install failed: {ex.Message}";
         }
         finally
@@ -599,6 +612,7 @@ public partial class ModsPageViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Bulk {Operation} of {FileCount} file(s) failed", progressLabel, paths.Count);
             StatusMessage = $"Failed while {progressLabel.ToLowerInvariant()}: {ex.Message}";
         }
         finally
@@ -780,9 +794,13 @@ public partial class ModsPageViewModel : ViewModelBase
             ModsFolderPath = layout.ModsFolderPath;
             DisabledModsFolderPath = layout.DisabledModsFolderPath;
         }
-        catch
+        catch (Exception ex)
         {
+            // Without a disabled root, enable/disable silently misbehaves — say so rather than
+            // leaving the user to discover it when a command does nothing.
+            _logger.LogWarning(ex, "Could not resolve the mods folder layout for {ModsFolderPath}", ModsFolderPath);
             DisabledModsFolderPath = string.Empty;
+            StatusMessage = $"Could not resolve that mods folder path: {ex.Message}";
         }
     }
 
