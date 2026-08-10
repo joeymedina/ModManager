@@ -1,6 +1,13 @@
 # Mod Listing & Update Tracking — Direction
 
-Status: proposal / findings. No code written yet.
+Status: **implemented**. All five phases below shipped (flat listing, folder-tree view,
+install pipeline + records, adoption, manual groups); see
+[flat-mod-listing-install-records.md](../flat-mod-listing-install-records.md) for what was
+actually built against this direction, including a few decisions that got refined during
+implementation (result types instead of exceptions, `IArchiveInstallService` scoped to
+archives with adoption/groups living on `IModsFolderRepository` instead, etc.). This
+document is kept as-is below as the original rationale — still accurate as the "why", even
+where the "what" moved slightly during implementation.
 
 ## The decision
 
