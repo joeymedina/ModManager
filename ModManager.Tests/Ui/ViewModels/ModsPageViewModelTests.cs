@@ -326,7 +326,7 @@ public sealed class ModsPageViewModelTests
         await viewModel.RefreshCommand.ExecuteAsync(null);
         viewModel.SelectedFiles.Add(viewModel.Files.Single());
         dialogServiceMock
-            .Setup(dialog => dialog.ShowAsync(It.IsAny<string>(), ModsDialog.Adopt, It.IsAny<object>(), It.IsAny<string>()))
+            .Setup(dialog => dialog.ShowAsync(It.IsAny<string>(), AppDialog.Adopt, It.IsAny<object>(), It.IsAny<string>()))
             .ReturnsAsync(true);
 
         await viewModel.AdoptSelectedCommand.ExecuteAsync(null);
@@ -348,7 +348,7 @@ public sealed class ModsPageViewModelTests
         await viewModel.RefreshCommand.ExecuteAsync(null);
         viewModel.SelectedFiles.Add(viewModel.Files.Single());
         dialogServiceMock
-            .Setup(dialog => dialog.ShowAsync(It.IsAny<string>(), ModsDialog.AddToGroup, It.IsAny<object>(), It.IsAny<string>()))
+            .Setup(dialog => dialog.ShowAsync(It.IsAny<string>(), AppDialog.AddToGroup, It.IsAny<object>(), It.IsAny<string>()))
             .ReturnsAsync(true);
 
         await viewModel.AddToGroupCommand.ExecuteAsync(null);
@@ -375,7 +375,7 @@ public sealed class ModsPageViewModelTests
         // Stands in for the dialog binding: a real AddToGroupDialogContent two-way binds
         // GroupNameInput to a text box, so confirming carries whatever the user typed.
         dialogServiceMock
-            .Setup(dialog => dialog.ShowAsync(It.IsAny<string>(), ModsDialog.AddToGroup, It.IsAny<object>(), It.IsAny<string>()))
+            .Setup(dialog => dialog.ShowAsync(It.IsAny<string>(), AppDialog.AddToGroup, It.IsAny<object>(), It.IsAny<string>()))
             .Callback(() => viewModel.GroupNameInput = "MyGroup")
             .ReturnsAsync(true);
 

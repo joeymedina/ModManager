@@ -6,10 +6,13 @@ using Microsoft.Extensions.Logging;
 using ModManager.Application.Extensions;
 using ModManager.Infrastructure.Extensions;
 using ModManager.Ui.Extensions;
+using ModManager.Ui.Models;
+using ModManager.Ui.Services;
 using ModManager.Ui.ViewModels;
 using ModManager.Ui.Views;
 using Serilog;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace ModManager.Ui;
@@ -35,6 +38,11 @@ public partial class App : Avalonia.Application
 
             ILogger<App> logger = services.GetRequiredService<ILogger<App>>();
             logger.LogInformation("Service provider built");
+
+            ThemeService themeService = services.GetRequiredService<ThemeService>();
+            string? themeName = services.GetRequiredService<SettingsStore>().Load().ThemeName;
+            AppTheme theme = themeService.ListThemes().FirstOrDefault(t => t.Name == themeName) ?? ThemePresets.DefaultLight;
+            themeService.Apply(theme);
 
             MainViewModel vm = services.GetRequiredService<MainViewModel>();
 

@@ -186,7 +186,7 @@ public partial class ModsPageViewModel : ViewModelBase
     {
         ModsFolderPath = path;
         UpdateLayoutPaths();
-        _settings.Save(new AppSettings { ModsFolderPath = ModsFolderPath });
+        _settings.Save(_settings.Load() with { ModsFolderPath = ModsFolderPath });
         await RefreshAsync();
     }
 
@@ -374,7 +374,7 @@ public partial class ModsPageViewModel : ViewModelBase
         AdoptModPageUrl = string.Empty;
         AdoptStatusMessage = string.Empty;
 
-        if (!await _dialogService.ShowAsync("Adopt files", ModsDialog.Adopt, this, "Adopt"))
+        if (!await _dialogService.ShowAsync("Adopt files", AppDialog.Adopt, this, "Adopt"))
         {
             return;
         }
@@ -436,7 +436,7 @@ public partial class ModsPageViewModel : ViewModelBase
         GroupNameInput = string.Empty;
         AddToGroupStatusMessage = string.Empty;
 
-        if (!await _dialogService.ShowAsync("Add to group", ModsDialog.AddToGroup, this, "Add"))
+        if (!await _dialogService.ShowAsync("Add to group", AppDialog.AddToGroup, this, "Add"))
         {
             return;
         }
@@ -543,7 +543,7 @@ public partial class ModsPageViewModel : ViewModelBase
         ArchivePathToInstall = archivePath;
         await PreviewInstallAsync();
 
-        if (await _dialogService.ShowAsync("Install mod", ModsDialog.Install, this, "Install"))
+        if (await _dialogService.ShowAsync("Install mod", AppDialog.Install, this, "Install"))
         {
             await ConfirmInstallAsync();
         }
@@ -934,15 +934,17 @@ public partial class ModsPageViewModel : ViewModelBase
 
     private sealed class NoopDialogService : IDialogService
     {
-        public Task<bool> ShowAsync(string title, ModsDialog dialog, object dataContext, string primaryText)
+        public Task<bool> ShowAsync(string title, AppDialog dialog, object dataContext, string primaryText)
             => Task.FromResult(false);
 
         public Task<bool> ConfirmAsync(string title, string message, string primaryText, bool isDestructive = false)
             => Task.FromResult(false);
 
-        public Task<string?> PickFileAsync(string title, IReadOnlyList<string> extensions) => Task.FromResult<string?>(null);
+        public Task<string?> PickFileAsync(string title, IReadOnlyList<string> extensions, string filterLabel = "Mod files") => Task.FromResult<string?>(null);
 
         public Task<string?> PickFolderAsync(string title, string? startPath) => Task.FromResult<string?>(null);
+
+        public Task<string?> SaveFileAsync(string title, string suggestedFileName, string extension, string filterLabel) => Task.FromResult<string?>(null);
     }
 
     private sealed class DesignTimeModsFolderUseCase : IModsFolderUseCase

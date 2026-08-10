@@ -1,0 +1,82 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             x:Class="ModManager.Ui.Views.Dialogs.ThemeEditorDialogContent"
+             x:DataType="vm:ThemeEditorViewModel"
+             Width="440">
+  <ScrollViewer MaxHeight="480">
+    <StackPanel Spacing="12">
+      <StackPanel Spacing="4">
+        <TextBlock Text="Name" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+        <TextBox Text="{Binding Name}" />
+      </StackPanel>
+
+      <CheckBox Content="Dark base" IsChecked="{Binding IsDark}" />
+
+      <TextBlock Text="Colors" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" Margin="0,8,0,0" />
+      <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+          <TextBlock Text="Accent" />
+          <ColorPicker Color="{Binding Accent}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+          <TextBlock Text="Window background" />
+          <ColorPicker Color="{Binding WindowBackground}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+          <TextBlock Text="Card background" />
+          <ColorPicker Color="{Binding CardBackground}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+        <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+          <TextBlock Text="Card border" />
+          <ColorPicker Color="{Binding CardBorder}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
+          <TextBlock Text="Control fill" />
+          <ColorPicker Color="{Binding ControlFill}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+        <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
+          <TextBlock Text="Text (primary)" />
+          <ColorPicker Color="{Binding TextPrimary}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Grid.Column="0" Spacing="4">
+          <TextBlock Text="Text (secondary)" />
+          <ColorPicker Color="{Binding TextSecondary}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+        <StackPanel Grid.Row="3" Grid.Column="1" Spacing="4">
+          <TextBlock Text="Success" />
+          <ColorPicker Color="{Binding Success}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Grid.Column="0" Spacing="4">
+          <TextBlock Text="Caution" />
+          <ColorPicker Color="{Binding Caution}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+        <StackPanel Grid.Row="4" Grid.Column="1" Spacing="4">
+          <TextBlock Text="Danger" />
+          <ColorPicker Color="{Binding Danger}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+      </Grid>
+
+      <TextBlock Text="Typography" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" Margin="0,8,0,0" />
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Grid.Column="0" Spacing="4">
+          <TextBlock Text="Font family" />
+          <TextBox Text="{Binding FontFamily}" />
+        </StackPanel>
+        <StackPanel Grid.Column="1" Spacing="4">
+          <TextBlock Text="Size" />
+          <NumericUpDown Value="{Binding FontSize}" Minimum="10" Maximum="24" Increment="1" Width="130" />
+        </StackPanel>
+      </Grid>
+
+      <TextBlock Text="{Binding ContrastWarning}"
+                 Foreground="{DynamicResource SystemFillColorCautionBrush}"
+                 TextWrapping="Wrap"
+                 IsVisible="{Binding ContrastWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

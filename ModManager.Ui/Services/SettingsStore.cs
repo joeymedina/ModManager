@@ -5,6 +5,7 @@ namespace ModManager.Ui.Services;
 public sealed record AppSettings
 {
     public string? ModsFolderPath { get; init; }
+    public string? ThemeName { get; init; }
 }
 
 /// <summary>
