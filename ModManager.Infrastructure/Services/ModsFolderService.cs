@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ModManager.Application.Interfaces;
 using ModManager.Application.Models;
 
@@ -12,6 +14,7 @@ public sealed class ModsFolderService : IModsFolderRepository
     private readonly ModsDiscoveryService _discoveryService;
     private readonly ModsFileOperationsService _fileOperationsService;
     private readonly ModsManifestService _manifestService;
+    private readonly ILogger<ModsFolderService> _logger;
 
     public ModsFolderService():
         this(
@@ -26,12 +29,14 @@ public sealed class ModsFolderService : IModsFolderRepository
         ModsFolderPathService pathService,
         ModsDiscoveryService discoveryService,
         ModsFileOperationsService fileOperationsService,
-        ModsManifestService manifestService)
+        ModsManifestService manifestService,
+        ILogger<ModsFolderService>? logger = null)
     {
         _pathService = pathService;
         _discoveryService = discoveryService;
         _fileOperationsService = fileOperationsService;
         _manifestService = manifestService;
+        _logger = logger ?? NullLogger<ModsFolderService>.Instance;
     }
 
     /// <summary>
@@ -55,8 +60,16 @@ public sealed class ModsFolderService : IModsFolderRepository
         ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
         if (manifest.Files.Count == 0 && manifest.Installs.Count == 0)
         {
+            _logger.LogDebug("Discovered {FileCount} file(s) in {ModsFolder}; no manifest metadata to layer on", discovered.Count, layout.ModsFolderPath);
             return discovered;
         }
+
+        _logger.LogDebug(
+            "Discovered {FileCount} file(s) in {ModsFolder}; layering {EntryCount} manifest entries from {InstallCount} install(s)",
+            discovered.Count,
+            layout.ModsFolderPath,
+            manifest.Files.Count,
+            manifest.Installs.Count);
 
         Dictionary<string, ManifestFileEntry> entriesByPath = manifest.Files
             .ToDictionary(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase);
@@ -125,7 +138,9 @@ public sealed class ModsFolderService : IModsFolderRepository
         ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
         IReadOnlyList<ModFile> discovered = _discoveryService.DiscoverFiles(layout);
 
-        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths);
+        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths, "Delete");
+
+        _logger.LogInformation("Deleting {MatchedCount} of {RequestedCount} requested file(s) from {ModsFolder}", matched.Count, relativePaths.Count, layout.ModsFolderPath);
 
         IReadOnlyList<ModFileFailure> deleteFailures = await _fileOperationsService.DeleteFilesAsync(matched, layout, cancellationToken);
         failures.AddRange(deleteFailures);
@@ -140,9 +155,14 @@ public sealed class ModsFolderService : IModsFolderRepository
         ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
         IReadOnlyList<ModFile> discovered = _discoveryService.DiscoverFiles(layout);
 
-        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths);
+        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths, targetState.ToString());
 
         List<ModFile> conflicted = [.. matched.Where(file => file.IsConflicted)];
+        foreach (ModFile file in conflicted)
+        {
+            _logger.LogWarning("Cannot set {RelativePath} to {TargetState}: it exists under both roots and must be resolved first", file.RelativePath, targetState);
+        }
+
         failures.AddRange(conflicted.Select(file => new ModFileFailure(file.RelativePath, "File is conflicted; resolve before changing state.")));
 
         List<ModFile> actionable = [.. matched.Where(file => !file.IsConflicted)];
@@ -177,10 +197,11 @@ public sealed class ModsFolderService : IModsFolderRepository
         ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
         IReadOnlyList<ModFile> discovered = _discoveryService.DiscoverFiles(layout);
 
-        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths);
+        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths, "Adopt");
         if (failures.Count > 0)
         {
             string missing = string.Join(", ", failures.Select(failure => failure.RelativePath));
+            _logger.LogWarning("Adopt of \"{DisplayName}\" abandoned: {MissingCount} requested file(s) not found", displayName, failures.Count);
             return ArchiveInstallResult<InstallRecord>.Fail($"File(s) not found: {missing}");
         }
 
@@ -208,6 +229,13 @@ public sealed class ModsFolderService : IModsFolderRepository
 
         ModsManifest updated = manifest with { Files = manifestFiles, Installs = [.. manifest.Installs, record] };
         await _manifestService.SaveAsync(layout, updated, cancellationToken);
+
+        _logger.LogInformation(
+            "Adopted {FileCount} file(s) as \"{DisplayName}\" (install {InstallId}, version {Version})",
+            files.Count,
+            displayName,
+            record.InstallId,
+            version ?? "unspecified");
 
         return ArchiveInstallResult<InstallRecord>.Ok(record);
     }
@@ -247,10 +275,11 @@ public sealed class ModsFolderService : IModsFolderRepository
         ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
         IReadOnlyList<ModFile> discovered = _discoveryService.DiscoverFiles(layout);
 
-        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths);
+        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths, "AddToGroup");
         if (failures.Count > 0)
         {
             string missing = string.Join(", ", failures.Select(failure => failure.RelativePath));
+            _logger.LogWarning("Add to group \"{GroupName}\" abandoned: {MissingCount} requested file(s) not found", groupName, failures.Count);
             return ArchiveInstallResult<ModGroup>.Fail($"File(s) not found: {missing}");
         }
 
@@ -337,7 +366,14 @@ public sealed class ModsFolderService : IModsFolderRepository
         await _manifestService.SaveAsync(layout, manifest with { Files = files, Groups = groups }, cancellationToken);
     }
 
-    private static (List<ModFile> Matched, List<ModFileFailure> Failures) MatchRequestedPaths(IReadOnlyList<ModFile> discovered, IReadOnlyList<string> relativePaths)
+    /// <summary>
+    /// Resolves requested relative paths against what discovery actually found. Every caller routes
+    /// through here, so this is the one place a "file not found" needs logging.
+    /// </summary>
+    private (List<ModFile> Matched, List<ModFileFailure> Failures) MatchRequestedPaths(
+        IReadOnlyList<ModFile> discovered,
+        IReadOnlyList<string> relativePaths,
+        string operation)
     {
         Dictionary<string, ModFile> byPath = discovered.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
 
@@ -352,6 +388,7 @@ public sealed class ModsFolderService : IModsFolderRepository
             }
             else
             {
+                _logger.LogWarning("{Operation}: requested file {RelativePath} was not found under either root", operation, path);
                 failures.Add(new ModFileFailure(path, "File not found."));
             }
         }

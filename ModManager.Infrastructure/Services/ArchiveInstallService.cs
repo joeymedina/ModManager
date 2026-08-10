@@ -1,5 +1,7 @@
 using System.IO.Compression;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ModManager.Application.Interfaces;
 using ModManager.Application.Models;
 
@@ -10,10 +12,12 @@ namespace ModManager.Infrastructure.Services;
 /// mods folder, and records the result in the per-folder manifest. Replaces the WickedWhims-specific
 /// WickedWhimsArchiveInstaller with a general, user-facing pipeline.
 /// </summary>
-public sealed class ArchiveInstallService(ModsManifestService manifestService) : IArchiveInstallService
+public sealed class ArchiveInstallService(ModsManifestService manifestService, ILogger<ArchiveInstallService>? logger = null) : IArchiveInstallService
 {
     private static readonly HashSet<string> ModExtensions = new(StringComparer.OrdinalIgnoreCase) { ".package", ".ts4script" };
     private static readonly Regex VariantFolderPattern = new(@"(^|[\\/])(optional|alternate|extras?)([\\/]|$)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private readonly ILogger<ArchiveInstallService> _logger = logger ?? NullLogger<ArchiveInstallService>.Instance;
 
     public Task<ArchiveInstallResult<ArchivePreview>> PreviewAsync(string archivePath, CancellationToken cancellationToken = default)
     {
@@ -21,6 +25,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
 
         if (!File.Exists(archivePath))
         {
+            _logger.LogWarning("Preview failed: {ArchivePath} does not exist", archivePath);
             return Task.FromResult(ArchiveInstallResult<ArchivePreview>.Fail($"File not found: {archivePath}"));
         }
 
@@ -33,16 +38,26 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
 
         if (!extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
         {
+            _logger.LogWarning("Preview failed: '{Extension}' is not a supported archive type ({ArchivePath})", extension, archivePath);
             return Task.FromResult(ArchiveInstallResult<ArchivePreview>.Fail(NonZipMessage(extension)));
         }
 
         try
         {
             using ZipArchive archive = ZipFile.OpenRead(archivePath);
-            return Task.FromResult(ArchiveInstallResult<ArchivePreview>.Ok(new ArchivePreview(ClassifyEntries(archive.Entries))));
+            IReadOnlyList<ArchiveEntryPreview> entries = ClassifyEntries(archive.Entries);
+            _logger.LogDebug(
+                "Previewed {ArchivePath}: {InstallableCount} installable, {VariantCount} variant, {OtherCount} not installable",
+                archivePath,
+                entries.Count(entry => entry.Kind == ArchiveEntryKind.Installable),
+                entries.Count(entry => entry.Kind == ArchiveEntryKind.Variant),
+                entries.Count(entry => entry.Kind == ArchiveEntryKind.NotInstallable));
+
+            return Task.FromResult(ArchiveInstallResult<ArchivePreview>.Ok(new ArchivePreview(entries)));
         }
-        catch (InvalidDataException)
+        catch (InvalidDataException ex)
         {
+            _logger.LogWarning(ex, "Preview failed: {ArchivePath} is not a valid zip archive", archivePath);
             return Task.FromResult(ArchiveInstallResult<ArchivePreview>.Fail("Not a valid zip archive."));
         }
     }
@@ -64,12 +79,20 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
 
         if (!File.Exists(archivePath))
         {
+            _logger.LogWarning("Install failed: {ArchivePath} does not exist", archivePath);
             return ArchiveInstallResult<InstallRecord>.Fail($"File not found: {archivePath}");
         }
 
         Directory.CreateDirectory(layout.ModsFolderPath);
         string modFolderName = ResolveModFolderName(layout.ModsFolderPath, displayName);
         string targetRoot = Path.Combine(layout.ModsFolderPath, modFolderName);
+
+        if (!string.Equals(modFolderName, displayName.Trim(), StringComparison.Ordinal))
+        {
+            _logger.LogInformation("Installing \"{DisplayName}\" into folder {ModFolderName} (name was sanitized or already taken)", displayName, modFolderName);
+        }
+
+        _logger.LogInformation("Installing {ArchivePath} into {TargetRoot} from {Provider}", archivePath, targetRoot, source.Provider);
 
         string extension = Path.GetExtension(archivePath);
         ArchiveInstallResult<InstallRecord>? bareFileResult = TryInstallBareFile(archivePath, extension, targetRoot, source, version, cancellationToken);
@@ -86,6 +109,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
 
         if (!extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
         {
+            _logger.LogWarning("Install failed: '{Extension}' is not a supported archive type ({ArchivePath})", extension, archivePath);
             return ArchiveInstallResult<InstallRecord>.Fail(NonZipMessage(extension));
         }
 
@@ -95,16 +119,26 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
             Directory.CreateDirectory(targetRoot);
             record = ExtractZip(archivePath, selectedEntryNames, targetRoot, layout.ModsFolderPath, source, version);
         }
-        catch (InvalidDataException)
+        catch (InvalidDataException ex)
         {
+            _logger.LogWarning(ex, "Install failed: {ArchivePath} is not a valid zip archive", archivePath);
             return ArchiveInstallResult<InstallRecord>.Fail("Not a valid zip archive.");
         }
         catch (InvalidOperationException ex)
         {
+            _logger.LogWarning(ex, "Install of {ArchivePath} rejected", archivePath);
             return ArchiveInstallResult<InstallRecord>.Fail(ex.Message);
         }
 
         await PersistRecordAsync(layout, displayName, record, cancellationToken);
+        _logger.LogInformation(
+            "Installed \"{DisplayName}\" as install {InstallId}: {InstalledCount} file(s) into {TargetRoot}, {SkippedCount} skipped",
+            displayName,
+            record.InstallId,
+            record.Files.Count,
+            targetRoot,
+            record.SkippedEntries.Count);
+
         return ArchiveInstallResult<InstallRecord>.Ok(record);
     }
 
@@ -141,7 +175,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
         return ArchiveInstallResult<InstallRecord>.Ok(record);
     }
 
-    private static InstallRecord ExtractZip(
+    private InstallRecord ExtractZip(
         string archivePath,
         IReadOnlySet<string> selectedEntryNames,
         string targetRoot,
@@ -164,6 +198,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
 
             if (!selectedEntryNames.Contains(entry.FullName))
             {
+                _logger.LogDebug("Skipped archive entry {EntryName} (not selected)", entry.FullName);
                 skipped.Add(entry.FullName);
                 continue;
             }
@@ -175,11 +210,13 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
                 // A .ts4script won't load more than one folder below the Mods root; the mod folder
                 // itself is that one level, so flatten any nested archive path to the mod folder root.
                 entryRelativePath = entry.Name;
+                _logger.LogInformation("Flattened {EntryName} to the mod folder root — a .ts4script won't load from a nested folder", entry.FullName);
             }
 
             string targetPath = Path.GetFullPath(Path.Combine(targetRoot, entryRelativePath.Replace('/', Path.DirectorySeparatorChar)));
             if (!targetPath.StartsWith(rootWithSeparator, StringComparison.Ordinal))
             {
+                _logger.LogWarning("Rejected archive entry escaping {TargetRoot}: {EntryName} (from {ArchivePath})", targetRoot, entry.FullName, archivePath);
                 throw new InvalidOperationException($"Unsafe archive path: {entry.FullName}");
             }
 
@@ -193,7 +230,15 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService) :
             entry.ExtractToFile(targetPath, overwrite: true);
 
             string relativeToModsFolder = Path.GetRelativePath(modsFolderPath, targetPath).Replace(Path.DirectorySeparatorChar, '/');
-            installed.Add(new InstallRecordFile(relativeToModsFolder, FileHashing.ComputeSha256(targetPath), new FileInfo(targetPath).Length));
+            InstallRecordFile installedFile = new(relativeToModsFolder, FileHashing.ComputeSha256(targetPath), new FileInfo(targetPath).Length);
+            installed.Add(installedFile);
+
+            _logger.LogDebug(
+                "Extracted {EntryName} to {RelativePath} ({SizeBytes} bytes, sha256 {Sha256})",
+                entry.FullName,
+                installedFile.RelativePath,
+                installedFile.SizeBytes,
+                installedFile.Sha256);
         }
 
         return new InstallRecord(

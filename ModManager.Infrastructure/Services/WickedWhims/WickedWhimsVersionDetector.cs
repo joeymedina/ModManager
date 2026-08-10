@@ -1,11 +1,15 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ModManager.Infrastructure.Services.WickedWhims;
 
-internal sealed class WickedWhimsVersionDetector
+internal sealed class WickedWhimsVersionDetector(ILogger<WickedWhimsVersionDetector>? logger = null)
 {
+    private readonly ILogger<WickedWhimsVersionDetector> _logger = logger ?? NullLogger<WickedWhimsVersionDetector>.Instance;
+
     private static readonly Regex[] TextPatterns =
     [
         new(@"WickedWhims[_\s-]+v?(\d{3}[a-z])", RegexOptions.IgnoreCase),
@@ -82,13 +86,13 @@ internal sealed class WickedWhimsVersionDetector
             };
     }
 
-    private static string? ExtractVersion(string file)
+    private string? ExtractVersion(string file)
     {
         byte[] bytes = File.ReadAllBytes(file);
 
         if (Path.GetExtension(file).Equals(".ts4script", StringComparison.OrdinalIgnoreCase))
         {
-            string? archiveVersion = ExtractVersionFromScript(bytes);
+            string? archiveVersion = ExtractVersionFromScript(bytes, file);
             if (archiveVersion is not null)
             {
                 return archiveVersion;
@@ -98,7 +102,7 @@ internal sealed class WickedWhimsVersionDetector
         return ExtractVersionFromText(Encoding.UTF8.GetString(bytes), TextPatterns);
     }
 
-    private static string? ExtractVersionFromScript(byte[] bytes)
+    private string? ExtractVersionFromScript(byte[] bytes, string file)
     {
         try
         {
@@ -118,8 +122,9 @@ internal sealed class WickedWhimsVersionDetector
                 }
             }
         }
-        catch (InvalidDataException)
+        catch (InvalidDataException ex)
         {
+            _logger.LogWarning(ex, "Skipped {ScriptPath} during version detection: not a readable .ts4script archive", file);
             return null;
         }
 
