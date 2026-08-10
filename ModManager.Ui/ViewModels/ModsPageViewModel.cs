@@ -6,11 +6,19 @@ using ModManager.Application.Models;
 
 namespace ModManager.Ui.ViewModels;
 
+public enum ModsListMode
+{
+    Flat,
+    Folder,
+    Group,
+}
+
 public partial class ModsPageViewModel : ViewModelBase
 {
     private readonly IModsFolderUseCase _modsFolderUseCase;
     private readonly IArchiveInstallService _archiveInstallService;
     private List<ModFileViewModel> _allFiles = [];
+    private List<ModGroup> _groups = [];
     private Uri? _pendingInstallSourceUri;
     private Uri? _pendingInstallModPageUri;
 
@@ -22,8 +30,12 @@ public partial class ModsPageViewModel : ViewModelBase
 
     public ObservableCollection<ModTreeNodeViewModel> SelectedTreeNodes { get; } = [];
 
+    public ObservableCollection<ModGroupNodeViewModel> GroupTree { get; } = [];
+
+    public ObservableCollection<ModGroupNodeViewModel> SelectedGroupNodes { get; } = [];
+
     [ObservableProperty]
-    private bool _groupByFolder;
+    private ModsListMode _listMode = ModsListMode.Flat;
 
     [ObservableProperty]
     private string _modsFolderPath = Path.Combine(
@@ -86,6 +98,17 @@ public partial class ModsPageViewModel : ViewModelBase
     [ObservableProperty]
     private string _adoptStatusMessage = string.Empty;
 
+    [ObservableProperty]
+    private bool _isAddToGroupPanelVisible;
+
+    [ObservableProperty]
+    private string _groupNameInput = string.Empty;
+
+    [ObservableProperty]
+    private string _addToGroupStatusMessage = string.Empty;
+
+    public ObservableCollection<string> ExistingGroupNames { get; } = [];
+
     public ModsPageViewModel()
         : this(new DesignTimeModsFolderUseCase(), new DesignTimeArchiveInstallService())
     {
@@ -97,6 +120,7 @@ public partial class ModsPageViewModel : ViewModelBase
         _archiveInstallService = archiveInstallService;
         SelectedFiles.CollectionChanged += (_, _) => UpdateDetails();
         SelectedTreeNodes.CollectionChanged += (_, _) => SyncSelectedFilesFromTree();
+        SelectedGroupNodes.CollectionChanged += (_, _) => SyncSelectedFilesFromGroupTree();
         UpdateLayoutPaths();
     }
 
@@ -181,6 +205,9 @@ public partial class ModsPageViewModel : ViewModelBase
             "Deleting", "Deleted",
             (root, paths, ct) => _modsFolderUseCase.DeleteAsync(root, paths, ct));
     }
+
+    [RelayCommand]
+    private void SetListMode(ModsListMode mode) => ListMode = mode;
 
     [RelayCommand]
     private void RequestAdoptSelected()
@@ -271,6 +298,130 @@ public partial class ModsPageViewModel : ViewModelBase
         AdoptVersion = string.Empty;
         AdoptModPageUrl = string.Empty;
         AdoptStatusMessage = string.Empty;
+    }
+
+    [RelayCommand]
+    private void RequestAddToGroup()
+    {
+        if (SelectedFiles.Count == 0)
+        {
+            StatusMessage = "Select one or more files first.";
+            return;
+        }
+
+        IsAddToGroupPanelVisible = true;
+    }
+
+    [RelayCommand]
+    private async Task ConfirmAddToGroupAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ModsFolderPath))
+        {
+            StatusMessage = "Mods folder path is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(GroupNameInput))
+        {
+            AddToGroupStatusMessage = "Enter a group name.";
+            return;
+        }
+
+        List<string> paths = [.. SelectedFiles.Select(file => file.RelativePath)];
+        if (paths.Count == 0)
+        {
+            AddToGroupStatusMessage = "Select one or more files first.";
+            return;
+        }
+
+        IsBusy = true;
+        AddToGroupStatusMessage = "Adding...";
+
+        try
+        {
+            ArchiveInstallResult<ModGroup> result = await _modsFolderUseCase.AddToGroupAsync(
+                ModsFolderPath.Trim(),
+                paths,
+                GroupNameInput.Trim());
+
+            if (!result.Success)
+            {
+                AddToGroupStatusMessage = result.Error ?? "Could not add to group.";
+                return;
+            }
+
+            string groupName = GroupNameInput;
+            IsAddToGroupPanelVisible = false;
+            ResetAddToGroupPanel();
+            await LoadFilesCoreAsync();
+            StatusMessage = $"Added {paths.Count} file(s) to \"{groupName}\".";
+        }
+        catch (Exception ex)
+        {
+            AddToGroupStatusMessage = $"Could not add to group: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void CancelAddToGroup()
+    {
+        IsAddToGroupPanelVisible = false;
+        ResetAddToGroupPanel();
+    }
+
+    private void ResetAddToGroupPanel()
+    {
+        GroupNameInput = string.Empty;
+        AddToGroupStatusMessage = string.Empty;
+    }
+
+    [RelayCommand]
+    private async Task UngroupSelectedAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ModsFolderPath))
+        {
+            StatusMessage = "Mods folder path is required.";
+            return;
+        }
+
+        List<string> paths = [.. SelectedFiles.Select(file => file.RelativePath)];
+        if (paths.Count == 0)
+        {
+            StatusMessage = "Select one or more files first.";
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = $"Removing {paths.Count} file(s) from their group...";
+
+        try
+        {
+            await _modsFolderUseCase.RemoveFromGroupAsync(ModsFolderPath.Trim(), paths);
+            await LoadFilesCoreAsync();
+            StatusMessage = $"Removed {paths.Count} file(s) from their group.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to ungroup: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     [RelayCommand]
@@ -472,6 +623,14 @@ public partial class ModsPageViewModel : ViewModelBase
     {
         UpdateLayoutPaths();
         IReadOnlyList<ModFile> files = await _modsFolderUseCase.LoadFilesAsync(ModsFolderPath.Trim());
+        IReadOnlyList<ModGroup> groups = await _modsFolderUseCase.LoadGroupsAsync(ModsFolderPath.Trim());
+        _groups = [.. groups];
+        ExistingGroupNames.Clear();
+        foreach (string name in _groups.Select(group => group.Name).OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+        {
+            ExistingGroupNames.Add(name);
+        }
+
         ReplaceFiles(files);
         StatusMessage = files.Count == 0
             ? "No mod files found."
@@ -485,6 +644,8 @@ public partial class ModsPageViewModel : ViewModelBase
         Files.Clear();
         FolderTree.Clear();
         SelectedTreeNodes.Clear();
+        GroupTree.Clear();
+        SelectedGroupNodes.Clear();
 
         List<ModFileViewModel> filtered = [.. string.IsNullOrWhiteSpace(SearchText)
             ? _allFiles
@@ -498,6 +659,13 @@ public partial class ModsPageViewModel : ViewModelBase
         foreach (ModTreeNodeViewModel node in ModTreeNodeViewModel.BuildTree(filtered))
         {
             FolderTree.Add(node);
+        }
+
+        // Group mode isn't filtered by search — it's a small, curated set of groups rather than a
+        // big list you're hunting through, and a "missing" member wouldn't match a filter anyway.
+        foreach (ModGroupNodeViewModel node in ModGroupNodeViewModel.BuildTree(_groups, _allFiles))
+        {
+            GroupTree.Add(node);
         }
     }
 
@@ -513,6 +681,40 @@ public partial class ModsPageViewModel : ViewModelBase
         foreach (ModFileViewModel file in files)
         {
             SelectedFiles.Add(file);
+        }
+    }
+
+    private void SyncSelectedFilesFromGroupTree()
+    {
+        HashSet<ModFileViewModel> files = [];
+        foreach (ModGroupNodeViewModel node in SelectedGroupNodes)
+        {
+            CollectGroupFiles(node, files);
+        }
+
+        SelectedFiles.Clear();
+        foreach (ModFileViewModel file in files)
+        {
+            SelectedFiles.Add(file);
+        }
+    }
+
+    private static void CollectGroupFiles(ModGroupNodeViewModel node, HashSet<ModFileViewModel> files)
+    {
+        if (node.File is not null)
+        {
+            files.Add(node.File);
+            return;
+        }
+
+        if (node.IsMissing)
+        {
+            return;
+        }
+
+        foreach (ModGroupNodeViewModel child in node.Children)
+        {
+            CollectGroupFiles(child, files);
         }
     }
 
@@ -625,6 +827,19 @@ public partial class ModsPageViewModel : ViewModelBase
             string? version,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ArchiveInstallResult<InstallRecord>.Fail("Not available at design time."));
+
+        public Task<IReadOnlyList<ModGroup>> LoadGroupsAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ModGroup>>([]);
+
+        public Task<ArchiveInstallResult<ModGroup>> AddToGroupAsync(
+            string modsFolderPath,
+            IReadOnlyList<string> relativePaths,
+            string groupName,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ArchiveInstallResult<ModGroup>.Fail("Not available at design time."));
+
+        public Task RemoveFromGroupAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private sealed class DesignTimeArchiveInstallService : IArchiveInstallService

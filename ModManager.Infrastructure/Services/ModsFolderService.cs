@@ -212,6 +212,131 @@ public sealed class ModsFolderService : IModsFolderRepository
         return ArchiveInstallResult<InstallRecord>.Ok(record);
     }
 
+    /// <summary>
+    /// Loads the manifest's group definitions, including members whose path no longer resolves to a
+    /// discovered file. Never writes.
+    /// </summary>
+    public async Task<IReadOnlyList<ModGroup>> LoadGroupsAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+    {
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+        return manifest.Groups;
+    }
+
+    /// <summary>
+    /// Adds the given files to a group, reusing an existing group with a case-insensitive matching
+    /// name or minting a new one. Since a file belongs to at most one group, each path is removed from
+    /// whatever group it previously belonged to, pruning that group if left empty. All-or-nothing:
+    /// fails if any path can't be found under either root.
+    /// </summary>
+    public async Task<ArchiveInstallResult<ModGroup>> AddToGroupAsync(
+        string modsFolderPath,
+        IReadOnlyList<string> relativePaths,
+        string groupName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+        ArgumentException.ThrowIfNullOrWhiteSpace(groupName);
+
+        if (relativePaths.Count == 0)
+        {
+            return ArchiveInstallResult<ModGroup>.Fail("Select at least one file first.");
+        }
+
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        IReadOnlyList<ModFile> discovered = _discoveryService.DiscoverFiles(layout);
+
+        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths);
+        if (failures.Count > 0)
+        {
+            string missing = string.Join(", ", failures.Select(failure => failure.RelativePath));
+            return ArchiveInstallResult<ModGroup>.Fail($"File(s) not found: {missing}");
+        }
+
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+
+        ModGroup? existingGroup = manifest.Groups
+            .FirstOrDefault(group => string.Equals(group.Name, groupName, StringComparison.OrdinalIgnoreCase));
+        string groupId = existingGroup?.GroupId ?? Guid.NewGuid().ToString("N");
+        string resolvedName = existingGroup?.Name ?? groupName;
+
+        HashSet<string> newMemberPaths = new(matched.Select(file => file.RelativePath), StringComparer.OrdinalIgnoreCase);
+
+        List<ModGroup> groups = [];
+        foreach (ModGroup group in manifest.Groups)
+        {
+            if (string.Equals(group.GroupId, groupId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            List<string> remainingMembers = [.. group.Members.Where(member => !newMemberPaths.Contains(member))];
+            if (remainingMembers.Count > 0)
+            {
+                groups.Add(group with { Members = remainingMembers });
+            }
+        }
+
+        List<string> mergedMembers = [.. (existingGroup?.Members ?? []).Union(newMemberPaths, StringComparer.OrdinalIgnoreCase)];
+        ModGroup updatedGroup = new(groupId, resolvedName, mergedMembers);
+        groups.Add(updatedGroup);
+
+        Dictionary<string, ManifestFileEntry> entriesByPath = manifest.Files
+            .ToDictionary(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase);
+        List<ManifestFileEntry> files = [];
+        foreach (ManifestFileEntry entry in manifest.Files)
+        {
+            files.Add(newMemberPaths.Contains(entry.RelativePath) ? entry with { GroupId = groupId } : entry);
+        }
+
+        foreach (string path in newMemberPaths.Where(path => !entriesByPath.ContainsKey(path)))
+        {
+            files.Add(new ManifestFileEntry(path, GroupId: groupId));
+        }
+
+        ModsManifest updated = manifest with { Files = files, Groups = groups };
+        await _manifestService.SaveAsync(layout, updated, cancellationToken);
+
+        return ArchiveInstallResult<ModGroup>.Ok(updatedGroup);
+    }
+
+    /// <summary>
+    /// Removes the given paths from whatever group they belong to. A group left with no members is
+    /// dropped, and a manifest entry left with no metadata at all is dropped too.
+    /// </summary>
+    public async Task RemoveFromGroupAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+
+        if (relativePaths.Count == 0)
+        {
+            return;
+        }
+
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+
+        HashSet<string> targetPaths = new(relativePaths, StringComparer.OrdinalIgnoreCase);
+
+        List<ModGroup> groups = [];
+        foreach (ModGroup group in manifest.Groups)
+        {
+            List<string> remainingMembers = [.. group.Members.Where(member => !targetPaths.Contains(member))];
+            if (remainingMembers.Count > 0)
+            {
+                groups.Add(group with { Members = remainingMembers });
+            }
+        }
+
+        List<ManifestFileEntry> files = [.. manifest.Files
+            .Select(entry => targetPaths.Contains(entry.RelativePath) ? entry with { GroupId = null } : entry)
+            .Where(entry => entry.DisplayName is not null || entry.GroupId is not null || entry.Notes is not null)];
+
+        await _manifestService.SaveAsync(layout, manifest with { Files = files, Groups = groups }, cancellationToken);
+    }
+
     private static (List<ModFile> Matched, List<ModFileFailure> Failures) MatchRequestedPaths(IReadOnlyList<ModFile> discovered, IReadOnlyList<string> relativePaths)
     {
         Dictionary<string, ModFile> byPath = discovered.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);

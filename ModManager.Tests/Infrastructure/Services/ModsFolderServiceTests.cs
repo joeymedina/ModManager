@@ -159,6 +159,100 @@ public sealed class ModsFolderServiceTests
         Assert.IsNull(files.Single().DisplayName);
     }
 
+    [TestMethod]
+    public async Task AddToGroupAsync_WhenGroupIsNew_ThenCreatesItWithSelectedMembers()
+    {
+        CreateFile(modsFolderPath, "A.package");
+        CreateFile(modsFolderPath, "B.package");
+
+        var service = new ModsFolderService();
+
+        ArchiveInstallResult<ModGroup> result = await service.AddToGroupAsync(
+            modsFolderPath,
+            ["A.package", "B.package"],
+            "My Group",
+            CancellationToken.None);
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual("My Group", result.Value!.Name);
+        Assert.HasCount(2, result.Value.Members);
+
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsTrue(files.All(file => file.GroupId == result.Value.GroupId));
+    }
+
+    [TestMethod]
+    public async Task AddToGroupAsync_WhenNameMatchesExistingGroup_ThenReusesItInsteadOfCreatingAnother()
+    {
+        CreateFile(modsFolderPath, "A.package");
+        CreateFile(modsFolderPath, "B.package");
+
+        var service = new ModsFolderService();
+
+        ArchiveInstallResult<ModGroup> first = await service.AddToGroupAsync(modsFolderPath, ["A.package"], "Shared", CancellationToken.None);
+        ArchiveInstallResult<ModGroup> second = await service.AddToGroupAsync(modsFolderPath, ["B.package"], "shared", CancellationToken.None);
+
+        Assert.AreEqual(first.Value!.GroupId, second.Value!.GroupId);
+
+        IReadOnlyList<ModGroup> groups = await service.LoadGroupsAsync(modsFolderPath, CancellationToken.None);
+        ModGroup group = groups.Single();
+        Assert.HasCount(2, group.Members);
+    }
+
+    [TestMethod]
+    public async Task AddToGroupAsync_WhenFileAlreadyBelongsToAnotherGroup_ThenMovesItAndPrunesTheOldGroupIfEmpty()
+    {
+        CreateFile(modsFolderPath, "A.package");
+
+        var service = new ModsFolderService();
+
+        await service.AddToGroupAsync(modsFolderPath, ["A.package"], "Old Group", CancellationToken.None);
+        ArchiveInstallResult<ModGroup> result = await service.AddToGroupAsync(modsFolderPath, ["A.package"], "New Group", CancellationToken.None);
+
+        Assert.IsTrue(result.Success);
+
+        IReadOnlyList<ModGroup> groups = await service.LoadGroupsAsync(modsFolderPath, CancellationToken.None);
+        ModGroup group = groups.Single();
+        Assert.AreEqual("New Group", group.Name);
+    }
+
+    [TestMethod]
+    public async Task RemoveFromGroupAsync_WhenLastMemberIsRemoved_ThenPrunesTheEmptyGroup()
+    {
+        CreateFile(modsFolderPath, "A.package");
+
+        var service = new ModsFolderService();
+
+        await service.AddToGroupAsync(modsFolderPath, ["A.package"], "Solo", CancellationToken.None);
+        await service.RemoveFromGroupAsync(modsFolderPath, ["A.package"], CancellationToken.None);
+
+        IReadOnlyList<ModGroup> groups = await service.LoadGroupsAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsEmpty(groups);
+
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsNull(files.Single().GroupId);
+    }
+
+    [TestMethod]
+    public async Task LoadGroupsAsync_WhenAMemberPathNoLongerResolves_ThenStillReturnsItAsAMember()
+    {
+        CreateFile(modsFolderPath, "A.package");
+        CreateFile(modsFolderPath, "B.package");
+
+        var service = new ModsFolderService();
+        await service.AddToGroupAsync(modsFolderPath, ["A.package", "B.package"], "Group", CancellationToken.None);
+
+        File.Delete(Path.Combine(modsFolderPath, "B.package"));
+
+        IReadOnlyList<ModGroup> groups = await service.LoadGroupsAsync(modsFolderPath, CancellationToken.None);
+        ModGroup group = groups.Single();
+        Assert.HasCount(2, group.Members);
+        Assert.Contains("B.package", group.Members);
+
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+        Assert.HasCount(1, files);
+    }
+
     private static void CreateFile(string root, string relativePath)
     {
         string fullPath = Path.Combine(root, relativePath);

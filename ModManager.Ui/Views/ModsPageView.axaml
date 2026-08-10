@@ -54,10 +54,31 @@
         <Button Content="Adopt selected..."
                 Command="{Binding RequestAdoptSelectedCommand}"
                 IsEnabled="{Binding !IsBusy}" />
-        <CheckBox Content="Group by folder"
-                   IsChecked="{Binding GroupByFolder}"
-                   VerticalAlignment="Center"
-                   Margin="16,0,0,0" />
+        <Button Content="Add to group..."
+                Command="{Binding RequestAddToGroupCommand}"
+                IsEnabled="{Binding !IsBusy}" />
+        <Button Content="Ungroup"
+                Command="{Binding UngroupSelectedCommand}"
+                IsEnabled="{Binding !IsBusy}" />
+      </StackPanel>
+
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBlock Text="View" VerticalAlignment="Center" />
+        <RadioButton Content="Flat"
+                     GroupName="ListMode"
+                     IsChecked="{Binding ListMode, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Flat}}"
+                     Command="{Binding SetListModeCommand}"
+                     CommandParameter="{x:Static vm:ModsListMode.Flat}" />
+        <RadioButton Content="By folder"
+                     GroupName="ListMode"
+                     IsChecked="{Binding ListMode, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Folder}}"
+                     Command="{Binding SetListModeCommand}"
+                     CommandParameter="{x:Static vm:ModsListMode.Folder}" />
+        <RadioButton Content="By group"
+                     GroupName="ListMode"
+                     IsChecked="{Binding ListMode, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Group}}"
+                     Command="{Binding SetListModeCommand}"
+                     CommandParameter="{x:Static vm:ModsListMode.Group}" />
       </StackPanel>
 
       <Border IsVisible="{Binding IsInstallPanelVisible}"
@@ -153,6 +174,34 @@
         </StackPanel>
       </Border>
 
+      <Border IsVisible="{Binding IsAddToGroupPanelVisible}"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+              BorderThickness="1"
+              CornerRadius="4"
+              Padding="8">
+        <StackPanel Spacing="8">
+          <TextBlock Text="{Binding SelectedFiles.Count, StringFormat='Adding {0} file(s) to a group. A file belongs to at most one group.'}"
+                     TextWrapping="Wrap"
+                     Opacity="0.85" />
+          <Grid ColumnDefinitions="Auto,*">
+            <TextBlock Grid.Column="0" Text="Group" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <AutoCompleteBox Grid.Column="1"
+                              Watermark="Pick an existing group or type a new name"
+                              ItemsSource="{Binding ExistingGroupNames}"
+                              Text="{Binding GroupNameInput}"
+                              FilterMode="Contains"
+                              MinimumPrefixLength="0"
+                              IsEnabled="{Binding !IsBusy}"
+                              GotFocus="OnGroupNameBoxGotFocus" />
+          </Grid>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Add" Command="{Binding ConfirmAddToGroupCommand}" IsEnabled="{Binding !IsBusy}" />
+            <Button Content="Cancel" Command="{Binding CancelAddToGroupCommand}" IsEnabled="{Binding !IsBusy}" />
+          </StackPanel>
+          <TextBlock Text="{Binding AddToGroupStatusMessage}" TextWrapping="Wrap" Opacity="0.85" />
+        </StackPanel>
+      </Border>
+
       <Border IsVisible="{Binding IsDeleteConfirmationVisible}"
               BorderBrush="{DynamicResource SystemControlErrorTextForegroundBrush}"
               BorderThickness="1"
@@ -186,7 +235,7 @@
           <ListBox ItemsSource="{Binding Files}"
                    SelectedItems="{Binding SelectedFiles}"
                    SelectionMode="Multiple"
-                   IsVisible="{Binding !GroupByFolder}"
+                   IsVisible="{Binding ListMode, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Flat}}"
                    IsEnabled="{Binding !IsBusy}">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="vm:ModFileViewModel">
@@ -211,7 +260,7 @@
           <TreeView ItemsSource="{Binding FolderTree}"
                     SelectedItems="{Binding SelectedTreeNodes}"
                     SelectionMode="Multiple"
-                    IsVisible="{Binding GroupByFolder}"
+                    IsVisible="{Binding ListMode, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Folder}}"
                     IsEnabled="{Binding !IsBusy}">
             <TreeView.ItemTemplate>
               <TreeDataTemplate x:DataType="vm:ModTreeNodeViewModel" ItemsSource="{Binding Children}">
@@ -224,6 +273,21 @@
                                ToolTip.Tip="More than one folder below Mods root — this script mod won't load." />
                     <TextBlock Text="{Binding File.StatusText}" Opacity="0.75" />
                   </StackPanel>
+                </Grid>
+              </TreeDataTemplate>
+            </TreeView.ItemTemplate>
+          </TreeView>
+
+          <TreeView ItemsSource="{Binding GroupTree}"
+                    SelectedItems="{Binding SelectedGroupNodes}"
+                    SelectionMode="Multiple"
+                    IsVisible="{Binding ListMode, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Group}}"
+                    IsEnabled="{Binding !IsBusy}">
+            <TreeView.ItemTemplate>
+              <TreeDataTemplate x:DataType="vm:ModGroupNodeViewModel" ItemsSource="{Binding Children}">
+                <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                  <TextBlock Grid.Column="0" Text="{Binding Name}" />
+                  <TextBlock Grid.Column="1" Text="{Binding File.StatusText}" Opacity="0.75" />
                 </Grid>
               </TreeDataTemplate>
             </TreeView.ItemTemplate>

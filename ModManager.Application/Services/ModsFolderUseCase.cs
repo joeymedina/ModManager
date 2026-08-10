@@ -70,4 +70,39 @@ public sealed class ModsFolderUseCase(IModsFolderRepository repository) : IModsF
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
         return repository.AdoptAsync(modsFolderPath, relativePaths, displayName, modPageUrl, version, cancellationToken);
     }
+
+    /// <summary>
+    /// Loads the manifest's group definitions. Never writes.
+    /// </summary>
+    public Task<IReadOnlyList<ModGroup>> LoadGroupsAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        return repository.LoadGroupsAsync(modsFolderPath, cancellationToken);
+    }
+
+    /// <summary>
+    /// Adds the given files to a group, creating or reusing it by name. A file belongs to at most one
+    /// group.
+    /// </summary>
+    public Task<ArchiveInstallResult<ModGroup>> AddToGroupAsync(
+        string modsFolderPath,
+        IReadOnlyList<string> relativePaths,
+        string groupName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+        ArgumentException.ThrowIfNullOrWhiteSpace(groupName);
+        return repository.AddToGroupAsync(modsFolderPath, relativePaths, groupName, cancellationToken);
+    }
+
+    /// <summary>
+    /// Removes the given paths from whatever group they belong to.
+    /// </summary>
+    public Task RemoveFromGroupAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+        return repository.RemoveFromGroupAsync(modsFolderPath, relativePaths, cancellationToken);
+    }
 }
