@@ -1,6 +1,7 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:ModManager.Ui.ViewModels"
+        xmlns:ui="using:FluentAvalonia.UI.Controls"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
@@ -8,45 +9,30 @@
         x:DataType="vm:MainViewModel"
         Icon="/Assets/avalonia-logo.ico"
         Title="Mod Manager"
-        Width="1000"
-        Height="700"
-        MinWidth="720"
-        MinHeight="480">
+        Width="1080"
+        Height="720"
+        MinWidth="820"
+        MinHeight="520">
 
   <Design.DataContext>
     <vm:MainViewModel />
   </Design.DataContext>
 
-  <Grid ColumnDefinitions="200,*">
-    <Border Grid.Column="0"
-            BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
-            BorderThickness="0,0,1,0"
-            Padding="8">
-      <DockPanel>
-        <TextBlock DockPanel.Dock="Top"
-                   Text="Mod Manager"
-                   FontSize="16"
-                   FontWeight="SemiBold"
-                   Margin="8,8,8,16" />
-        <ListBox ItemsSource="{Binding NavigationItems}"
-                 SelectedItem="{Binding SelectedNavigationItem}"
-                 Background="Transparent">
-          <ListBox.Styles>
-            <Style Selector="ListBoxItem">
-              <Setter Property="Padding" Value="12,10" />
-              <Setter Property="CornerRadius" Value="6" />
-              <Setter Property="Margin" Value="0,2" />
-            </Style>
-          </ListBox.Styles>
-          <ListBox.ItemTemplate>
-            <DataTemplate x:DataType="vm:NavigationItemViewModel">
-              <TextBlock Text="{Binding Title}" FontSize="14" />
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
-      </DockPanel>
-    </Border>
+  <ui:FANavigationView x:Name="Nav"
+                       MenuItemsSource="{Binding NavigationItems}"
+                       SelectedItem="{Binding SelectedNavigationItem}"
+                       PaneDisplayMode="Left"
+                       OpenPaneLength="200"
+                       IsSettingsVisible="False"
+                       IsBackButtonVisible="False"
+                       AlwaysShowHeader="False">
+    <ui:FANavigationView.MenuItemTemplate>
+      <DataTemplate x:DataType="vm:NavigationItemViewModel">
+        <ui:FANavigationViewItem Content="{Binding Title}"
+                                 IconSource="{Binding IconSource}" />
+      </DataTemplate>
+    </ui:FANavigationView.MenuItemTemplate>
 
-    <Panel Grid.Column="1" x:Name="PageHost" />
-  </Grid>
+    <Panel x:Name="PageHost" />
+  </ui:FANavigationView>
 </Window>

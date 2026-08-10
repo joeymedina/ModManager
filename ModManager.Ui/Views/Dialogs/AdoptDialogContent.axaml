@@ -1,0 +1,38 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             x:Class="ModManager.Ui.Views.Dialogs.AdoptDialogContent"
+             x:DataType="vm:ModsPageViewModel"
+             Width="460">
+  <StackPanel Spacing="12">
+    <TextBlock Text="{Binding SelectedCount, StringFormat='Links {0} file(s) already in your Mods folder to a source. Nothing moves or changes on disk.'}"
+               TextWrapping="Wrap"
+               Opacity="0.75" />
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Name" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <TextBox PlaceholderText="What is this mod called?"
+               Text="{Binding AdoptDisplayName}"
+               IsEnabled="{Binding !IsBusy}" />
+    </StackPanel>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Version (optional)" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <TextBox PlaceholderText="e.g. 1.4.2"
+               Text="{Binding AdoptVersion}"
+               IsEnabled="{Binding !IsBusy}" />
+    </StackPanel>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Mod page (optional)" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <TextBox PlaceholderText="https://…"
+               Text="{Binding AdoptModPageUrl}"
+               IsEnabled="{Binding !IsBusy}" />
+    </StackPanel>
+
+    <TextBlock Text="{Binding AdoptStatusMessage}"
+               TextWrapping="Wrap"
+               Opacity="0.8"
+               IsVisible="{Binding AdoptStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+  </StackPanel>
+</UserControl>

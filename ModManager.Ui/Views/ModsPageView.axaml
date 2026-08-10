@@ -3,310 +3,376 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:ModManager.Ui.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             xmlns:ui="using:FluentAvalonia.UI.Controls"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
              x:Class="ModManager.Ui.Views.ModsPageView"
+             x:Name="ModsRoot"
              x:DataType="vm:ModsPageViewModel">
   <Design.DataContext>
     <vm:ModsPageViewModel />
   </Design.DataContext>
 
-  <DockPanel Margin="16">
-    <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,12">
-      <TextBlock Text="Mods Folder" FontSize="22" FontWeight="SemiBold" />
+  <UserControl.Resources>
+    <!-- Both warnings appear on several row templates and in the details pane; worded once here so
+         the explanations can't drift apart. -->
+    <x:String x:Key="ConflictExplanation">This file exists in both your Mods folder and the Mods.Disabled folder. The game loads the enabled copy and ignores the other. Mod Manager won't turn it on or off until you delete whichever copy you don't want.</x:String>
+    <x:String x:Key="DepthExplanation">Script mods must sit no more than one folder below the Mods root. This one is deeper, so The Sims 4 won't load it. Move it up to fix it.</x:String>
+  </UserControl.Resources>
 
-      <Grid ColumnDefinitions="Auto,*,Auto">
-        <TextBlock Grid.Column="0" Text="Path" VerticalAlignment="Center" />
-        <TextBox Grid.Column="1"
-                 PlaceholderText="Mods folder path"
-                 Text="{Binding ModsFolderPath}"
-                 IsEnabled="{Binding !IsBusy}" />
-        <Button Grid.Column="2"
-                Content="Refresh"
-                Command="{Binding RefreshCommand}"
-                IsEnabled="{Binding !IsBusy}" />
-      </Grid>
+  <UserControl.Styles>
+    <Style Selector="ToggleButton.chip">
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="14,5" />
+      <Setter Property="MinWidth" Value="0" />
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="TextBlock.label">
+      <Setter Property="Opacity" Value="0.65" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <!-- The row switch is the state readout, so it carries no On/Off caption of its own. -->
+    <Style Selector="ToggleSwitch.row">
+      <Setter Property="OnContent" Value="" />
+      <Setter Property="OffContent" Value="" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.conflict">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
+    </Style>
+  </UserControl.Styles>
 
-      <TextBlock Text="{Binding DisabledModsFolderPath, StringFormat='Disabled folder: {0}'}"
-                 Opacity="0.75"
-                 TextWrapping="Wrap" />
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="20,16,20,0">
 
-      <Grid ColumnDefinitions="Auto,*">
-        <TextBlock Grid.Column="0" Text="Search" VerticalAlignment="Center" Margin="0,0,8,0" />
-        <TextBox Grid.Column="1"
-                 PlaceholderText="Filter by name or folder"
-                 Text="{Binding SearchText}" />
-      </Grid>
+    <!-- Header: which folder we're looking at, and the one action that starts a new mod. -->
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+      <StackPanel Grid.Column="0" Spacing="1">
+        <TextBlock Text="Mods" Theme="{DynamicResource TitleTextBlockStyle}" />
+        <TextBlock Text="{Binding ModsFolderPath}"
+                   Classes="label"
+                   TextTrimming="CharacterEllipsis"
+                   ToolTip.Tip="{Binding DisabledModsFolderPath, StringFormat='Disabled mods are moved to: {0}'}" />
+      </StackPanel>
 
-      <StackPanel Orientation="Horizontal" Spacing="8">
-        <Button Content="Enable"
-                Command="{Binding EnableSelectedCommand}"
-                IsEnabled="{Binding !IsBusy}" />
-        <Button Content="Disable"
-                Command="{Binding DisableSelectedCommand}"
-                IsEnabled="{Binding !IsBusy}" />
-        <Button Content="Delete"
-                Command="{Binding RequestDeleteSelectedCommand}"
-                IsEnabled="{Binding !IsBusy}" />
-        <Button Content="Install from file..."
-                Command="{Binding RequestInstallFromFileCommand}"
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <Button Command="{Binding RefreshCommand}"
                 IsEnabled="{Binding !IsBusy}"
-                Margin="16,0,0,0" />
-        <Button Content="Adopt selected..."
-                Command="{Binding RequestAdoptSelectedCommand}"
-                IsEnabled="{Binding !IsBusy}" />
-        <Button Content="Add to group..."
-                Command="{Binding RequestAddToGroupCommand}"
-                IsEnabled="{Binding !IsBusy}" />
-        <Button Content="Ungroup"
-                Command="{Binding UngroupSelectedCommand}"
+                ToolTip.Tip="Reload from disk">
+          <ui:FASymbolIcon Symbol="Refresh" />
+        </Button>
+        <Button Content="Install from file…"
+                Classes="accent"
+                Command="{Binding InstallFromFileCommand}"
                 IsEnabled="{Binding !IsBusy}" />
       </StackPanel>
+    </Grid>
 
-      <StackPanel Orientation="Horizontal" Spacing="8">
-        <TextBlock Text="View" VerticalAlignment="Center" />
-        <RadioButton Content="Flat"
-                     GroupName="ListMode"
-                     IsChecked="{Binding ListMode, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Flat}}"
-                     Command="{Binding SetListModeCommand}"
-                     CommandParameter="{x:Static vm:ModsListMode.Flat}" />
-        <RadioButton Content="By folder"
-                     GroupName="ListMode"
-                     IsChecked="{Binding ListMode, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Folder}}"
-                     Command="{Binding SetListModeCommand}"
-                     CommandParameter="{x:Static vm:ModsListMode.Folder}" />
-        <RadioButton Content="By group"
-                     GroupName="ListMode"
-                     IsChecked="{Binding ListMode, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Group}}"
-                     Command="{Binding SetListModeCommand}"
-                     CommandParameter="{x:Static vm:ModsListMode.Group}" />
+    <!-- Find: search, status chips, and how the list is grouped. -->
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Margin="0,0,0,10">
+      <TextBox Grid.Column="0"
+               PlaceholderText="Search by name or folder"
+               Text="{Binding SearchText}"
+               MinWidth="240">
+        <TextBox.InnerLeftContent>
+          <ui:FASymbolIcon Symbol="Find" Margin="8,0,0,0" Opacity="0.6" />
+        </TextBox.InnerLeftContent>
+        <TextBox.InnerRightContent>
+          <Button Command="{Binding ClearSearchCommand}"
+                  Background="Transparent"
+                  BorderThickness="0"
+                  Padding="6,0"
+                  IsVisible="{Binding SearchText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <ui:FASymbolIcon Symbol="Dismiss" />
+          </Button>
+        </TextBox.InnerRightContent>
+      </TextBox>
+
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+        <ToggleButton Content="All" Classes="chip"
+                      Command="{Binding SetStatusFilterCommand}"
+                      CommandParameter="{x:Static vm:ModsStatusFilter.All}"
+                      IsChecked="{Binding StatusFilter, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsStatusFilter.All}}" />
+        <ToggleButton Content="Enabled" Classes="chip"
+                      Command="{Binding SetStatusFilterCommand}"
+                      CommandParameter="{x:Static vm:ModsStatusFilter.Enabled}"
+                      IsChecked="{Binding StatusFilter, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsStatusFilter.Enabled}}" />
+        <ToggleButton Content="Disabled" Classes="chip"
+                      Command="{Binding SetStatusFilterCommand}"
+                      CommandParameter="{x:Static vm:ModsStatusFilter.Disabled}"
+                      IsChecked="{Binding StatusFilter, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsStatusFilter.Disabled}}" />
       </StackPanel>
 
-      <Border IsVisible="{Binding IsInstallPanelVisible}"
-              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
-              BorderThickness="1"
-              CornerRadius="4"
-              Padding="8">
-        <StackPanel Spacing="8">
-          <Grid ColumnDefinitions="Auto,*,Auto">
-            <TextBlock Grid.Column="0" Text="Archive" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <TextBox Grid.Column="1"
-                     PlaceholderText="Path to a .zip, .package, or .ts4script file"
-                     Text="{Binding ArchivePathToInstall}"
-                     IsEnabled="{Binding !IsBusy}" />
-            <Button Grid.Column="2"
-                    Content="Preview"
-                    Command="{Binding PreviewInstallCommand}"
-                    IsEnabled="{Binding !IsBusy}"
-                    Margin="8,0,0,0" />
-          </Grid>
+      <ComboBox Grid.Column="2"
+                ItemsSource="{Binding ListModes}"
+                SelectedItem="{Binding ListMode}"
+                MinWidth="130"
+                VerticalAlignment="Center"
+                ToolTip.Tip="How the list is grouped" />
+    </Grid>
 
-          <StackPanel IsVisible="{Binding HasArchivePreview}" Spacing="8">
-            <Grid ColumnDefinitions="Auto,*">
-              <TextBlock Grid.Column="0" Text="Install as" VerticalAlignment="Center" Margin="0,0,8,0" />
-              <TextBox Grid.Column="1"
-                       PlaceholderText="Mod folder name"
-                       Text="{Binding InstallDisplayName}"
-                       IsEnabled="{Binding !IsBusy}" />
-            </Grid>
+    <!-- Failures get a bar you have to dismiss; routine counts stay in the status line. -->
+    <ui:FAInfoBar Grid.Row="2"
+                  Severity="Error"
+                  Title="Something went wrong"
+                  Message="{Binding ErrorMessage}"
+                  IsOpen="{Binding HasError, Mode=OneWay}"
+                  IsClosable="True"
+                  CloseButtonCommand="{Binding DismissErrorCommand}"
+                  Margin="0,0,0,10" />
 
-            <ListBox ItemsSource="{Binding ArchivePreviewEntries}"
+    <!-- Content: list on the left, details on the right. -->
+    <Grid Grid.Row="3" ColumnDefinitions="*,320" ColumnSpacing="12">
+      <Grid Grid.Column="0" RowDefinitions="Auto,*">
+
+        <!-- Bulk actions only appear once something is selected. -->
+        <Border Grid.Row="0"
+                Classes="card"
+                Padding="10,6"
+                Margin="0,0,0,8"
+                IsVisible="{Binding HasSelection}">
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="{Binding SelectedCount, StringFormat='{}{0} selected'}"
+                       VerticalAlignment="Center"
+                       FontWeight="SemiBold"
+                       Margin="4,0,8,0" />
+            <Button Content="Enable" Command="{Binding EnableSelectedCommand}" IsEnabled="{Binding !IsBusy}" />
+            <Button Content="Disable" Command="{Binding DisableSelectedCommand}" IsEnabled="{Binding !IsBusy}" />
+            <Button Content="Group…" Command="{Binding AddToGroupCommand}" IsEnabled="{Binding !IsBusy}" />
+            <Button Content="More" IsEnabled="{Binding !IsBusy}">
+              <Button.Flyout>
+                <MenuFlyout>
+                  <MenuItem Header="Adopt…" Command="{Binding AdoptSelectedCommand}" />
+                  <MenuItem Header="Remove from group" Command="{Binding UngroupSelectedCommand}" />
+                  <Separator />
+                  <MenuItem Header="Delete…" Command="{Binding DeleteSelectedCommand}" />
+                </MenuFlyout>
+              </Button.Flyout>
+            </Button>
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" Classes="card" Padding="4">
+          <Panel>
+            <ListBox ItemsSource="{Binding Files}"
+                     Padding="0,0,14,0"
+                     SelectedItems="{Binding SelectedFiles}"
                      SelectionMode="Multiple"
-                     MaxHeight="220"
+                     Background="Transparent"
+                     IsVisible="{Binding ListMode, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Flat}}"
                      IsEnabled="{Binding !IsBusy}">
+              <ListBox.ContextFlyout>
+                <MenuFlyout>
+                  <MenuItem Header="Enable" Command="{Binding EnableSelectedCommand}" />
+                  <MenuItem Header="Disable" Command="{Binding DisableSelectedCommand}" />
+                  <Separator />
+                  <MenuItem Header="Add to group…" Command="{Binding AddToGroupCommand}" />
+                  <MenuItem Header="Remove from group" Command="{Binding UngroupSelectedCommand}" />
+                  <MenuItem Header="Adopt…" Command="{Binding AdoptSelectedCommand}" />
+                  <Separator />
+                  <MenuItem Header="Delete…" Command="{Binding DeleteSelectedCommand}" />
+                </MenuFlyout>
+              </ListBox.ContextFlyout>
               <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:ArchiveEntryPreviewViewModel">
-                  <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2">
-                    <CheckBox Grid.Column="0"
-                              IsChecked="{Binding IsSelected}"
-                              IsEnabled="{Binding IsInstallable}" />
-                    <TextBlock Grid.Column="1" Text="{Binding EntryName}" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="2" Text="{Binding KindLabel}" Opacity="0.75" VerticalAlignment="Center" />
+                <DataTemplate x:DataType="vm:ModFileViewModel">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,2">
+                    <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding FolderText}" Classes="label" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                      <!-- A two-state switch can't say "conflicted", so that state keeps a label. -->
+                      <TextBlock Text="Conflicted"
+                                 Classes="conflict"
+                                 IsVisible="{Binding IsConflicted}"
+                                 ToolTip.Tip="{StaticResource ConflictExplanation}" />
+                      <ui:FASymbolIcon Symbol="AlertUrgent"
+                                       Foreground="{DynamicResource SystemFillColorCautionBrush}"
+                                       IsVisible="{Binding HasDepthWarning}"
+                                       ToolTip.Tip="{StaticResource DepthExplanation}" />
+                      <TextBlock Text="{Binding SizeText}" Classes="label" />
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="2"
+                                  Classes="row"
+                                  IsChecked="{Binding IsEnabled, Mode=OneWay}"
+                                  Command="{Binding #ModsRoot.((vm:ModsPageViewModel)DataContext).ToggleFileCommand}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip.Tip="Turn this mod on or off" />
                   </Grid>
                 </DataTemplate>
               </ListBox.ItemTemplate>
             </ListBox>
 
-            <StackPanel Orientation="Horizontal" Spacing="8">
-              <Button Content="Install" Command="{Binding ConfirmInstallCommand}" IsEnabled="{Binding !IsBusy}" />
-              <Button Content="Cancel" Command="{Binding CancelInstallCommand}" IsEnabled="{Binding !IsBusy}" />
+            <TreeView ItemsSource="{Binding FolderTree}"
+                      Padding="0,0,14,0"
+                      SelectedItems="{Binding SelectedTreeNodes}"
+                      SelectionMode="Multiple"
+                      Background="Transparent"
+                      IsVisible="{Binding ListMode, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Folder}}"
+                      IsEnabled="{Binding !IsBusy}">
+              <TreeView.ItemTemplate>
+                <TreeDataTemplate x:DataType="vm:ModTreeNodeViewModel" ItemsSource="{Binding Children}">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="0,2">
+                    <ui:FASymbolIcon Grid.Column="0"
+                                     Symbol="Folder"
+                                     Opacity="0.6"
+                                     VerticalAlignment="Center"
+                                     IsVisible="{Binding IsFolder}" />
+                    <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding !IsFolder}">
+                      <TextBlock Text="Conflicted"
+                                 Classes="conflict"
+                                 IsVisible="{Binding File.IsConflicted}"
+                                 ToolTip.Tip="{StaticResource ConflictExplanation}" />
+                      <ui:FASymbolIcon Symbol="AlertUrgent"
+                                       Foreground="{DynamicResource SystemFillColorCautionBrush}"
+                                       IsVisible="{Binding File.HasDepthWarning}"
+                                       ToolTip.Tip="{StaticResource DepthExplanation}" />
+                      <ToggleSwitch Classes="row"
+                                    IsChecked="{Binding File.IsEnabled, Mode=OneWay}"
+                                    Command="{Binding #ModsRoot.((vm:ModsPageViewModel)DataContext).ToggleFileCommand}"
+                                    CommandParameter="{Binding File}"
+                                    ToolTip.Tip="Turn this mod on or off" />
+                    </StackPanel>
+                  </Grid>
+                </TreeDataTemplate>
+              </TreeView.ItemTemplate>
+            </TreeView>
+
+            <TreeView ItemsSource="{Binding GroupTree}"
+                      Padding="0,0,14,0"
+                      SelectedItems="{Binding SelectedGroupNodes}"
+                      SelectionMode="Multiple"
+                      Background="Transparent"
+                      IsVisible="{Binding ListMode, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Group}}"
+                      IsEnabled="{Binding !IsBusy}">
+              <TreeView.ItemTemplate>
+                <TreeDataTemplate x:DataType="vm:ModGroupNodeViewModel" ItemsSource="{Binding Children}">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,2">
+                    <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                      <!-- Group headers have no File, and an unresolved path would leave IsVisible
+                           at its default of true, labelling every group "Conflicted". -->
+                      <TextBlock Text="Conflicted"
+                                 Classes="conflict"
+                                 IsVisible="{Binding File.IsConflicted, FallbackValue=False}"
+                                 ToolTip.Tip="{StaticResource ConflictExplanation}" />
+                      <!-- Group nodes and missing members have no file to switch. -->
+                      <ToggleSwitch Classes="row"
+                                    IsVisible="{Binding File, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    IsChecked="{Binding File.IsEnabled, Mode=OneWay}"
+                                    Command="{Binding #ModsRoot.((vm:ModsPageViewModel)DataContext).ToggleFileCommand}"
+                                    CommandParameter="{Binding File}"
+                                    ToolTip.Tip="Turn this mod on or off" />
+                    </StackPanel>
+                  </Grid>
+                </TreeDataTemplate>
+              </TreeView.ItemTemplate>
+            </TreeView>
+          </Panel>
+        </Border>
+      </Grid>
+
+      <!-- Details for whatever is selected. -->
+      <Border Grid.Column="1" Classes="card" Padding="16">
+        <ScrollViewer>
+          <StackPanel Spacing="14">
+            <StackPanel Spacing="2">
+              <TextBlock Text="{Binding DetailHeader}"
+                         Theme="{DynamicResource SubtitleTextBlockStyle}"
+                         TextWrapping="Wrap" />
+              <TextBlock Text="{Binding DetailSubtitle}" Classes="label" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <ContentControl IsVisible="{Binding DetailFile, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            Content="{Binding DetailFile}">
+              <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="vm:ModFileViewModel">
+            <StackPanel Spacing="12">
+              <Border Background="{DynamicResource ControlFillColorDefaultBrush}"
+                      CornerRadius="12"
+                      Padding="10,3"
+                      HorizontalAlignment="Left">
+                <TextBlock Text="{Binding StatusText}" FontSize="12" />
+              </Border>
+
+              <ui:FAInfoBar Severity="Warning"
+                            Title="Two copies of this file"
+                            Message="{StaticResource ConflictExplanation}"
+                            IsOpen="{Binding IsConflicted, Mode=OneWay}"
+                            IsClosable="False" />
+
+              <ui:FAInfoBar Severity="Warning"
+                            Title="Won't load"
+                            Message="{StaticResource DepthExplanation}"
+                            IsOpen="{Binding HasDepthWarning, Mode=OneWay}"
+                            IsClosable="False" />
+
+              <StackPanel Spacing="8">
+                <StackPanel Spacing="1">
+                  <TextBlock Text="Folder" Classes="label" />
+                  <TextBlock Text="{Binding FolderText}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Spacing="1">
+                  <TextBlock Text="Size" Classes="label" />
+                  <TextBlock Text="{Binding SizeText}" />
+                </StackPanel>
+                <StackPanel Spacing="1">
+                  <TextBlock Text="Modified" Classes="label" />
+                  <TextBlock Text="{Binding ModifiedText}" />
+                </StackPanel>
+                <StackPanel Spacing="1" IsVisible="{Binding Version, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="Version" Classes="label" />
+                  <TextBlock Text="{Binding Version}" />
+                </StackPanel>
+                <StackPanel Spacing="1" IsVisible="{Binding Provider, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="Source" Classes="label" />
+                  <TextBlock Text="{Binding Provider}" />
+                </StackPanel>
+                <StackPanel Spacing="1" IsVisible="{Binding InstalledText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="Installed" Classes="label" />
+                  <TextBlock Text="{Binding InstalledText}" />
+                </StackPanel>
+              </StackPanel>
+            </StackPanel>
+                </DataTemplate>
+              </ContentControl.ContentTemplate>
+            </ContentControl>
+
+            <StackPanel Spacing="6" IsVisible="{Binding DetailFile, Converter={x:Static ObjectConverters.IsNotNull}}">
+              <Button Content="Open containing folder"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Left"
+                      Command="{Binding RevealInExplorerCommand}" />
+              <Button Content="Open mod page"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Left"
+                      Command="{Binding OpenModPageCommand}"
+                      IsVisible="{Binding DetailFile.HasModPage}" />
             </StackPanel>
           </StackPanel>
-
-          <TextBlock Text="{Binding InstallStatusMessage}" TextWrapping="Wrap" Opacity="0.85" />
-        </StackPanel>
-      </Border>
-
-      <Border IsVisible="{Binding IsAdoptPanelVisible}"
-              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
-              BorderThickness="1"
-              CornerRadius="4"
-              Padding="8">
-        <StackPanel Spacing="8">
-          <TextBlock Text="{Binding SelectedFiles.Count, StringFormat='Adopting {0} file(s) already in this folder — links them to a source without moving anything.'}"
-                     TextWrapping="Wrap"
-                     Opacity="0.85" />
-          <Grid ColumnDefinitions="Auto,*">
-            <TextBlock Grid.Column="0" Text="Name" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <TextBox Grid.Column="1"
-                     PlaceholderText="What is this mod called?"
-                     Text="{Binding AdoptDisplayName}"
-                     IsEnabled="{Binding !IsBusy}" />
-          </Grid>
-          <Grid ColumnDefinitions="Auto,*">
-            <TextBlock Grid.Column="0" Text="Version" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <TextBox Grid.Column="1"
-                     PlaceholderText="Optional"
-                     Text="{Binding AdoptVersion}"
-                     IsEnabled="{Binding !IsBusy}" />
-          </Grid>
-          <Grid ColumnDefinitions="Auto,*">
-            <TextBlock Grid.Column="0" Text="Mod page" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <TextBox Grid.Column="1"
-                     PlaceholderText="Optional"
-                     Text="{Binding AdoptModPageUrl}"
-                     IsEnabled="{Binding !IsBusy}" />
-          </Grid>
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button Content="Adopt" Command="{Binding ConfirmAdoptCommand}" IsEnabled="{Binding !IsBusy}" />
-            <Button Content="Cancel" Command="{Binding CancelAdoptCommand}" IsEnabled="{Binding !IsBusy}" />
-          </StackPanel>
-          <TextBlock Text="{Binding AdoptStatusMessage}" TextWrapping="Wrap" Opacity="0.85" />
-        </StackPanel>
-      </Border>
-
-      <Border IsVisible="{Binding IsAddToGroupPanelVisible}"
-              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
-              BorderThickness="1"
-              CornerRadius="4"
-              Padding="8">
-        <StackPanel Spacing="8">
-          <TextBlock Text="{Binding SelectedFiles.Count, StringFormat='Adding {0} file(s) to a group. A file belongs to at most one group.'}"
-                     TextWrapping="Wrap"
-                     Opacity="0.85" />
-          <Grid ColumnDefinitions="Auto,*">
-            <TextBlock Grid.Column="0" Text="Group" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <AutoCompleteBox Grid.Column="1"
-                              PlaceholderText="Pick an existing group or type a new name"
-                              ItemsSource="{Binding ExistingGroupNames}"
-                              Text="{Binding GroupNameInput}"
-                              FilterMode="Contains"
-                              MinimumPrefixLength="0"
-                              IsEnabled="{Binding !IsBusy}"
-                              GotFocus="OnGroupNameBoxGotFocus" />
-          </Grid>
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button Content="Add" Command="{Binding ConfirmAddToGroupCommand}" IsEnabled="{Binding !IsBusy}" />
-            <Button Content="Cancel" Command="{Binding CancelAddToGroupCommand}" IsEnabled="{Binding !IsBusy}" />
-          </StackPanel>
-          <TextBlock Text="{Binding AddToGroupStatusMessage}" TextWrapping="Wrap" Opacity="0.85" />
-        </StackPanel>
-      </Border>
-
-      <Border IsVisible="{Binding IsDeleteConfirmationVisible}"
-              BorderBrush="{DynamicResource SystemControlErrorTextForegroundBrush}"
-              BorderThickness="1"
-              CornerRadius="4"
-              Padding="8">
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <TextBlock Text="{Binding DeleteConfirmationMessage}"
-                     VerticalAlignment="Center"
-                     TextWrapping="Wrap" />
-          <Button Content="Delete" Command="{Binding ConfirmDeleteSelectedCommand}" />
-          <Button Content="Cancel" Command="{Binding CancelDeleteSelectedCommand}" />
-        </StackPanel>
-      </Border>
-
-      <TextBlock Text="{Binding StatusMessage}"
-                 TextWrapping="Wrap" />
-    </StackPanel>
-
-    <Grid ColumnDefinitions="2*,*">
-      <Border Grid.Column="0"
-              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
-              BorderThickness="1"
-              CornerRadius="6"
-              Padding="8">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top"
-                     Text="Mod Files"
-                     FontWeight="SemiBold"
-                     Margin="0,0,0,8" />
-          <Panel>
-          <ListBox ItemsSource="{Binding Files}"
-                   SelectedItems="{Binding SelectedFiles}"
-                   SelectionMode="Multiple"
-                   IsVisible="{Binding ListMode, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Flat}}"
-                   IsEnabled="{Binding !IsBusy}">
-            <ListBox.ItemTemplate>
-              <DataTemplate x:DataType="vm:ModFileViewModel">
-                <Grid ColumnDefinitions="*,Auto" Margin="0,4">
-                  <StackPanel Grid.Column="0" Spacing="2">
-                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                    <TextBlock Opacity="0.75"
-                               Text="{Binding Folder, StringFormat='Folder: {0}'}" />
-                  </StackPanel>
-                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <TextBlock Text="⚠"
-                               Foreground="Orange"
-                               IsVisible="{Binding HasDepthWarning}"
-                               ToolTip.Tip="More than one folder below Mods root — this script mod won't load." />
-                    <TextBlock Text="{Binding StatusText}" Opacity="0.75" />
-                  </StackPanel>
-                </Grid>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
-
-          <TreeView ItemsSource="{Binding FolderTree}"
-                    SelectedItems="{Binding SelectedTreeNodes}"
-                    SelectionMode="Multiple"
-                    IsVisible="{Binding ListMode, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Folder}}"
-                    IsEnabled="{Binding !IsBusy}">
-            <TreeView.ItemTemplate>
-              <TreeDataTemplate x:DataType="vm:ModTreeNodeViewModel" ItemsSource="{Binding Children}">
-                <Grid ColumnDefinitions="*,Auto" Margin="0,2">
-                  <TextBlock Grid.Column="0" Text="{Binding Name}" />
-                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" IsVisible="{Binding !IsFolder}">
-                    <TextBlock Text="⚠"
-                               Foreground="Orange"
-                               IsVisible="{Binding File.HasDepthWarning}"
-                               ToolTip.Tip="More than one folder below Mods root — this script mod won't load." />
-                    <TextBlock Text="{Binding File.StatusText}" Opacity="0.75" />
-                  </StackPanel>
-                </Grid>
-              </TreeDataTemplate>
-            </TreeView.ItemTemplate>
-          </TreeView>
-
-          <TreeView ItemsSource="{Binding GroupTree}"
-                    SelectedItems="{Binding SelectedGroupNodes}"
-                    SelectionMode="Multiple"
-                    IsVisible="{Binding ListMode, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ModsListMode.Group}}"
-                    IsEnabled="{Binding !IsBusy}">
-            <TreeView.ItemTemplate>
-              <TreeDataTemplate x:DataType="vm:ModGroupNodeViewModel" ItemsSource="{Binding Children}">
-                <Grid ColumnDefinitions="*,Auto" Margin="0,2">
-                  <TextBlock Grid.Column="0" Text="{Binding Name}" />
-                  <TextBlock Grid.Column="1" Text="{Binding File.StatusText}" Opacity="0.75" />
-                </Grid>
-              </TreeDataTemplate>
-            </TreeView.ItemTemplate>
-          </TreeView>
-          </Panel>
-        </DockPanel>
-      </Border>
-
-      <Border Grid.Column="1"
-              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
-              BorderThickness="1"
-              CornerRadius="6"
-              Padding="12">
-        <StackPanel Spacing="8">
-          <TextBlock Text="Details" FontWeight="SemiBold" />
-          <TextBlock Text="{Binding DetailHeader}" FontSize="18" TextWrapping="Wrap" />
-          <TextBlock Text="{Binding DetailBody}" TextWrapping="Wrap" />
-        </StackPanel>
+        </ScrollViewer>
       </Border>
     </Grid>
-  </DockPanel>
+
+    <!-- Quiet status line: counts and progress, never modal. -->
+    <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,8,0,8" ColumnSpacing="12">
+      <TextBlock Grid.Column="0"
+                 Text="{Binding StatusMessage}"
+                 Classes="label"
+                 VerticalAlignment="Center"
+                 TextTrimming="CharacterEllipsis" />
+      <ProgressBar Grid.Column="1"
+                   IsIndeterminate="True"
+                   Width="120"
+                   VerticalAlignment="Center"
+                   IsVisible="{Binding IsBusy}" />
+    </Grid>
+  </Grid>
 </UserControl>

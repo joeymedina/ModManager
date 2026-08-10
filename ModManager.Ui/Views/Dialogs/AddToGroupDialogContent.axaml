@@ -1,0 +1,28 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             x:Class="ModManager.Ui.Views.Dialogs.AddToGroupDialogContent"
+             x:DataType="vm:ModsPageViewModel"
+             Width="420">
+  <StackPanel Spacing="12">
+    <TextBlock Text="{Binding SelectedCount, StringFormat='Adding {0} file(s) to a group. A file belongs to at most one group.'}"
+               TextWrapping="Wrap"
+               Opacity="0.75" />
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Group" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <AutoCompleteBox PlaceholderText="Pick an existing group or type a new name"
+                       ItemsSource="{Binding ExistingGroupNames}"
+                       Text="{Binding GroupNameInput}"
+                       FilterMode="Contains"
+                       MinimumPrefixLength="0"
+                       IsEnabled="{Binding !IsBusy}"
+                       GotFocus="OnGroupNameBoxGotFocus" />
+    </StackPanel>
+
+    <TextBlock Text="{Binding AddToGroupStatusMessage}"
+               TextWrapping="Wrap"
+               Opacity="0.8"
+               IsVisible="{Binding AddToGroupStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+  </StackPanel>
+</UserControl>

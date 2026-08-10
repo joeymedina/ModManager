@@ -2,9 +2,9 @@ using Avalonia.Controls;
 
 namespace ModManager.Ui.Views;
 
-public partial class ModsPageView : UserControl
+public partial class SettingsPageView : UserControl
 {
-    public ModsPageView()
+    public SettingsPageView()
     {
         InitializeComponent();
     }
