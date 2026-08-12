@@ -11,6 +11,7 @@ public interface IBrowsePageBrowser : IDisposable
     event Action? NavigationStarted;
     event Action<Uri?, bool>? NavigationCompleted;
     event Action<string>? AdBlocked;
+    event Action<Uri>? NewTabRequested;
     void Navigate(Uri uri);
     void GoBack();
     void GoForward();

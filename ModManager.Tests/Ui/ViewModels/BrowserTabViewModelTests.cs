@@ -284,6 +284,21 @@ public sealed class BrowserTabViewModelTests
     }
 
     [TestMethod]
+    public void OnNewTabRequested_ThenRaisesNewTabRequestedWithSelfAndUri()
+    {
+        BrowserTabViewModel viewModel = CreateViewModel();
+        Uri target = new("https://example.com/popup");
+        (BrowserTabViewModel Source, Uri Uri)? raised = null;
+        viewModel.NewTabRequested += (source, uri) => raised = (source, uri);
+
+        viewModel.OnNewTabRequested(target);
+
+        Assert.IsNotNull(raised);
+        Assert.AreSame(viewModel, raised!.Value.Source);
+        Assert.AreEqual(target, raised.Value.Uri);
+    }
+
+    [TestMethod]
     public void OnBrowserDownloadFailed_ThenMarksDownloadFailedAndReenablesCommand()
     {
         BrowserTabViewModel viewModel = CreateViewModel();

@@ -104,6 +104,36 @@ public sealed class BrowsePageViewModelTests
     }
 
     [TestMethod]
+    public void TabNewTabRequested_ThenOpensAndSelectsNewTabAtTargetUri()
+    {
+        BrowsePageViewModel viewModel = CreateViewModel();
+        BrowserTabViewModel sourceTab = viewModel.Tabs[0];
+        Uri target = new("https://example.com/popup");
+
+        sourceTab.OnNewTabRequested(target);
+
+        Assert.HasCount(2, viewModel.Tabs);
+        BrowserTabViewModel newTab = viewModel.Tabs[1];
+        Assert.AreSame(newTab, viewModel.SelectedTab);
+        Assert.AreEqual(target.ToString(), newTab.AddressText);
+    }
+
+    [TestMethod]
+    public void CloseTab_WhenTabHadRequestedNewTabs_ThenClosingOriginalTabDoesNotAffectOpenedTab()
+    {
+        BrowsePageViewModel viewModel = CreateViewModel();
+        BrowserTabViewModel sourceTab = viewModel.Tabs[0];
+        sourceTab.OnNewTabRequested(new Uri("https://example.com/popup"));
+        BrowserTabViewModel openedTab = viewModel.Tabs[1];
+        viewModel.SelectTabCommand.Execute(sourceTab);
+
+        sourceTab.CloseCommand.Execute(null);
+
+        Assert.HasCount(1, viewModel.Tabs);
+        Assert.AreSame(openedTab, viewModel.Tabs[0]);
+    }
+
+    [TestMethod]
     public void BeginDownload_WhenTabStartsDownload_ThenSurfacesInDownloadsAtIndexZero()
     {
         BrowsePageViewModel viewModel = CreateViewModel();

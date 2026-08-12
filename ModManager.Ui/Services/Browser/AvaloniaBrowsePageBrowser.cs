@@ -31,6 +31,8 @@ public sealed class AvaloniaBrowsePageBrowser : IBrowsePageBrowser
 
     public event Action<string>? AdBlocked;
 
+    public event Action<Uri>? NewTabRequested;
+
     public void Navigate(Uri uri) => _browser.Navigate(uri);
 
     public void GoBack() => _browser.GoBack();
@@ -74,7 +76,8 @@ public sealed class AvaloniaBrowsePageBrowser : IBrowsePageBrowser
             return new WindowsNativeWebViewPlatformBridge(
                 _adBlockService,
                 getViewModel,
-                url => AdBlocked?.Invoke(url));
+                url => AdBlocked?.Invoke(url),
+                uri => NewTabRequested?.Invoke(uri));
         }
 
         if (OperatingSystem.IsMacOS())
@@ -82,7 +85,8 @@ public sealed class AvaloniaBrowsePageBrowser : IBrowsePageBrowser
             return new MacNativeWebViewPlatformBridge(
                 _adBlockService,
                 getViewModel,
-                url => AdBlocked?.Invoke(url));
+                url => AdBlocked?.Invoke(url),
+                uri => NewTabRequested?.Invoke(uri));
         }
 
         return new NoopNativeWebViewPlatformBridge();

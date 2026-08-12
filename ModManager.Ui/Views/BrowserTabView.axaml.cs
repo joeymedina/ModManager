@@ -19,6 +19,7 @@ public partial class BrowserTabView : UserControl
         _browser.NavigationStarted += OnBrowserNavigationStarted;
         _browser.NavigationCompleted += OnBrowserNavigationCompleted;
         _browser.AdBlocked += OnBrowserAdBlocked;
+        _browser.NewTabRequested += OnBrowserNewTabRequested;
         BrowserHost.Child = _browser.View;
     }
 
@@ -117,6 +118,11 @@ public partial class BrowserTabView : UserControl
     private void OnBrowserAdBlocked(string url)
     {
         ViewModel?.OnAdBlocked(url);
+    }
+
+    private void OnBrowserNewTabRequested(Uri uri)
+    {
+        ViewModel?.OnNewTabRequested(uri);
     }
 
     private void SyncNavigationButtons()

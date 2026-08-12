@@ -60,13 +60,24 @@ public partial class BrowsePageViewModel : ViewModelBase
         }
     }
 
-    private BrowserTabViewModel AddTab()
+    private BrowserTabViewModel AddTab(Uri? initialUri = null)
     {
         BrowserTabViewModel tab = new(_downloadService, BeginDownload, _tabLogger);
+        if (initialUri is not null)
+        {
+            tab.AddressText = initialUri.ToString();
+        }
+
         tab.CloseRequested += OnTabCloseRequested;
+        tab.NewTabRequested += OnTabNewTabRequested;
         Tabs.Add(tab);
         SelectedTab = tab;
         return tab;
+    }
+
+    private void OnTabNewTabRequested(BrowserTabViewModel sourceTab, Uri uri)
+    {
+        AddTab(uri);
     }
 
     private DownloadItemViewModel BeginDownload(string fileName, Uri? sourceUri, Action cancelRequested)
@@ -91,6 +102,7 @@ public partial class BrowsePageViewModel : ViewModelBase
         }
 
         tab.CloseRequested -= OnTabCloseRequested;
+        tab.NewTabRequested -= OnTabNewTabRequested;
         Tabs.RemoveAt(index);
 
         if (SelectedTab == tab)

@@ -2,7 +2,7 @@
 
 ## Context
 
-The Browse page gives users a tabbed, embedded browser pointed at mod-hosting sites (default: modthesims.info). It supports multiple tabs, direct-URL downloads, browser-initiated downloads surfaced in a shared download tray, native ad blocking, and cookie bridging between the embedded browser session and `HttpClient`-based downloads.
+The Browse page gives users a tabbed, embedded browser pointed at mod-hosting sites (default: modthesims.info). It supports multiple tabs, direct-URL downloads, browser-initiated downloads surfaced in a shared download tray, native ad blocking, cookie bridging between the embedded browser session and `HttpClient`-based downloads, and opening `target="_blank"`/`window.open()` links as new app tabs instead of silently doing nothing.
 
 Related documentation: [navigation-shell.md](./navigation-shell.md).
 
@@ -13,6 +13,15 @@ Related documentation: [navigation-shell.md](./navigation-shell.md).
 - `BrowsePageView` became the outer shell (toolbar + tab strip); a new `BrowserTabView` owns one `IBrowsePageBrowser` instance per tab.
 - Windows: the ad-block resource filter is scoped to the resource contexts EasyList rules actually target instead of `CoreWebView2WebResourceContext.All`, which was routing every request (including the main document, fonts, websockets) through managed-code matching on every navigation.
 - macOS: the JS monkey-patch ad blocker and click-detection download sniffing were replaced with native WebKit mechanisms — `WKContentRuleList` for ad blocking and a custom `WKNavigationDelegate`/`WKDownloadDelegate` for real download interception (see below).
+
+## New-Tab / New-Window Support
+
+Links that ask to open in a new window (`target="_blank"`, `window.open()`) previously did nothing on either platform — nobody subscribed to the underlying "new window" signal. `IBrowsePageBrowser` now exposes a `NewTabRequested` event that both platform bridges raise with the target URI; the event bubbles `IBrowsePageBrowser` → `BrowserTabView` → `BrowserTabViewModel.NewTabRequested` (mirrors the existing `CloseRequested` bubble-up shape: `Action<BrowserTabViewModel, Uri>`, subscribed/unsubscribed by `BrowsePageViewModel` alongside `CloseRequested` in `AddTab`/`OnTabCloseRequested`) → `BrowsePageViewModel.AddTab(Uri)`, which opens and selects a new tab pre-addressed at that URI (the same `AddressText`-before-`Tabs.Add` ordering the initial tab's home page relies on, so `BrowserTabView.OnLoaded` navigates there on first load — no separate "navigate after tab creation" step needed).
+
+| Platform | Signal | Handling |
+| --- | --- | --- |
+| Windows | `CoreWebView2.NewWindowRequested` | `WindowsNativeWebViewPlatformBridge` sets `e.Handled = true` (no `e.NewWindow` assigned, so WebView2 opens nothing itself) and posts the URI to `NewTabRequested` |
+| macOS | `WKUIDelegate.webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:` | New `WKNewWindowInterceptor` (see below) becomes the `WKWebView`'s `uiDelegate`, extracts the URL, posts it, and returns `nil` so WebKit creates no child window |
 
 ## Architecture
 
@@ -33,7 +42,8 @@ Related documentation: [navigation-shell.md](./navigation-shell.md).
 │ BrowserTabViewModel                                                │
 │  Commands: Navigate, GoHome, Close, DownloadCurrent                │
 │  Events:   NavigationRequested, CookiesRequested,                  │
-│            BrowserDownloadCancellationRequested, CloseRequested    │
+│            BrowserDownloadCancellationRequested, CloseRequested,   │
+│            NewTabRequested                                         │
 │  Callbacks: OnNavigationStarted/Completed, OnAdBlocked,            │
 │             OnBrowserDownload{Started/Updated/Failed},              │
 │             TryBeginDownload, UpdateNavigationState                │
@@ -53,9 +63,10 @@ Related documentation: [navigation-shell.md](./navigation-shell.md).
 ┌───▼──────────────────┐ ┌▼─────────────────────────────────────────┐
 │ WindowsNativeWebView  │ │ MacNativeWebViewPlatformBridge           │
 │ PlatformBridge        │ │  Attaches WKContentRuleListAdBlocker +   │
-│  CoreWebView2 native  │ │  WKDownloadInterceptor to the raw        │
-│  WebResourceRequested │ │  WKWebView* via raw Objective-C interop  │
-│  + DownloadStarting    │ │                                          │
+│  CoreWebView2 native  │ │  WKDownloadInterceptor + WKNewWindow-    │
+│  WebResourceRequested │ │  Interceptor to the raw WKWebView* via   │
+│  + DownloadStarting    │ │  raw Objective-C interop                │
+│  + NewWindowRequested  │ │                                          │
 └───────────────────────┘ └──────────────────────────────────────────┘
 ```
 
@@ -79,13 +90,15 @@ Unchanged from the original design — a dedicated `HttpClient`-based downloader
 
 ## IBrowsePageBrowser
 
-Unchanged shape; still the abstraction that decouples the tab view/view model from the browser engine. `AvaloniaBrowsePageBrowser` (wrapping `Avalonia.Controls.WebView`) is now the only implementation — the CefGlue implementation and its supporting classes (`CefGlueBrowsePageBrowser`, `AdBlockRequestHandler`, `AdBlockResourceRequestHandler`, `BrowserDownloadHandler`) were deleted, along with the `CefGlue.Avalonia.ARM64` package reference.
+Still the abstraction that decouples the tab view/view model from the browser engine (now also exposes `NewTabRequested`, see New-Tab / New-Window Support above). `AvaloniaBrowsePageBrowser` (wrapping `Avalonia.Controls.WebView`) is now the only implementation — the CefGlue implementation and its supporting classes (`CefGlueBrowsePageBrowser`, `AdBlockRequestHandler`, `AdBlockResourceRequestHandler`, `BrowserDownloadHandler`) were deleted, along with the `CefGlue.Avalonia.ARM64` package reference.
 
 ## Windows: WindowsNativeWebViewPlatformBridge
 
 Still reaches into the real `CoreWebView2` object (via `TryGetPlatformHandle()` + a private-constructor reflection call, since Avalonia's WebView package exposes no supported managed wrapper for an externally-owned `CoreWebView2`) for native `WebResourceRequested`-based ad blocking and `DownloadStarting`-based download interception.
 
 The one behavioral change: `AddWebResourceRequestedFilter` is now registered per relevant `CoreWebView2WebResourceContext` (`Image`, `Stylesheet`, `Media`, `Script`, `XmlHttpRequest`, `Fetch`, `Other`) instead of `All`. Filtering `All` meant every request of every type — including the main document itself — crossed into managed-code EasyList matching, which was the dominant cause of sluggish page loads.
+
+Also subscribes to `CoreWebView2.NewWindowRequested` (see New-Tab / New-Window Support above) alongside `WebResourceRequested`/`DownloadStarting`.
 
 ## macOS: MacNativeWebViewPlatformBridge + native WebKit interop
 
@@ -109,6 +122,14 @@ Because `navigationDelegate` is a single slot, replacing it would silently stop 
 **Known limitation:** no `WKDownload.progress` KVO is wired up, so macOS downloads show as in-progress with no live percentage, then flip to complete/failed — Windows still reports live percentage via `CoreWebView2`.
 
 **Verification status:** this file's C# compiles on any platform (P/Invoke declarations don't require the target library to exist at compile time) but its actual behavior has only been verified by reading Avalonia's own equivalent implementation, not by running on macOS hardware — it needs manual verification on a Mac (ad blocking on a heavy site, a real file download with cancel-mid-download, and confirming normal navigation/page-load events still fire, which proves the delegate-forwarding didn't break Avalonia's own event pipeline).
+
+### WKNewWindowInterceptor
+
+Avalonia's macOS `WKWebView` adapter sets no `uiDelegate` at all (no `createWebView`-related symbols anywhere in the assembly), so unlike `navigationDelegate` there is no existing behavior to preserve — but the class still captures whatever `uiDelegate` was set (`nil` today) and forwards to it via the same `forwardingTargetForSelector:`/`respondsToSelector:` pair `WKDownloadInterceptor` uses, for forward safety if a future Avalonia version starts setting one.
+
+Becomes the `WKWebView`'s `uiDelegate` to implement `webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:` — the one `WKUIDelegate` selector WebKit consults before opening a window for `target="_blank"` or `window.open()`. Extracts the target URL from `navigationAction.request.URL`, posts it to the `Action<Uri>` callback threaded in from `MacNativeWebViewPlatformBridge`'s constructor, and returns `nil`, which tells WebKit not to create a child `WKWebView`/window itself.
+
+**Verification status:** same as `WKDownloadInterceptor` above — compiles cross-platform, unverified on real macOS hardware.
 
 ## Ad blocking data source: AdBlockService
 
@@ -135,6 +156,7 @@ Registered in `ModManager.Ui/Extensions/ServiceCollectionExtensions.cs`:
 | Second download from the same tab while one is active | Status message warns; download is not started |
 | Invalid URL in address bar | Status message warns; navigation is not started |
 | Closing the last remaining tab | Ignored — at least one tab always stays open |
+| A page opens a link in a new window/tab | A new app tab opens pre-addressed at the target URL instead of a native popup window; the source tab is unaffected |
 
 ## Out of Scope
 
