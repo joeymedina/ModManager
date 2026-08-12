@@ -52,6 +52,7 @@ public partial class BrowserTabViewModel : ViewModelBase
     public event Func<Task<IReadOnlyList<Cookie>>>? CookiesRequested;
     public event Action? BrowserDownloadCancellationRequested;
     public event Action<BrowserTabViewModel>? CloseRequested;
+    public event Action<BrowserTabViewModel, Uri>? NewTabRequested;
 
     public BrowserTabViewModel()
         : this(new BrowserDownloadService(), static (fileName, _, cancel) => new DownloadItemViewModel(fileName, null, cancel))
@@ -236,6 +237,11 @@ public partial class BrowserTabViewModel : ViewModelBase
     {
         CanGoBack = canGoBack;
         CanGoForward = canGoForward;
+    }
+
+    public void OnNewTabRequested(Uri uri)
+    {
+        NewTabRequested?.Invoke(this, uri);
     }
 
     private void RequestNavigation(Uri uri)

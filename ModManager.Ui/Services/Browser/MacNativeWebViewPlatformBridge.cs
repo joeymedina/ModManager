@@ -11,17 +11,21 @@ public sealed class MacNativeWebViewPlatformBridge : INativeWebViewPlatformBridg
 {
     private readonly AdBlockService _adBlockService;
     private readonly Func<BrowserTabViewModel?> _getViewModel;
+    private readonly Action<Uri> _onNewTabRequested;
     private NativeWebView? _browser;
     private WKDownloadInterceptor? _downloadInterceptor;
+    private WKNewWindowInterceptor? _newWindowInterceptor;
     private bool _disposed;
 
     public MacNativeWebViewPlatformBridge(
         AdBlockService adBlockService,
         Func<BrowserTabViewModel?> getViewModel,
-        Action<string> onAdBlocked)
+        Action<string> onAdBlocked,
+        Action<Uri> onNewTabRequested)
     {
         _adBlockService = adBlockService;
         _getViewModel = getViewModel;
+        _onNewTabRequested = onNewTabRequested;
         // WebKit's content-blocker API blocks requests inside its own networking
         // layer and does not report which URLs it blocked, so there is no
         // per-URL signal to raise here on macOS (unlike Windows' CoreWebView2
@@ -48,6 +52,8 @@ public sealed class MacNativeWebViewPlatformBridge : INativeWebViewPlatformBridg
         _disposed = true;
         _downloadInterceptor?.Dispose();
         _downloadInterceptor = null;
+        _newWindowInterceptor?.Dispose();
+        _newWindowInterceptor = null;
 
         if (_browser is null)
         {
@@ -68,6 +74,8 @@ public sealed class MacNativeWebViewPlatformBridge : INativeWebViewPlatformBridg
     {
         _downloadInterceptor?.Dispose();
         _downloadInterceptor = null;
+        _newWindowInterceptor?.Dispose();
+        _newWindowInterceptor = null;
     }
 
     private void TryAttachNativeWebView()
@@ -81,6 +89,7 @@ public sealed class MacNativeWebViewPlatformBridge : INativeWebViewPlatformBridg
 
         IntPtr webViewHandle = handle.WKWebView;
         _downloadInterceptor = new WKDownloadInterceptor(webViewHandle, _getViewModel);
+        _newWindowInterceptor = new WKNewWindowInterceptor(webViewHandle, _onNewTabRequested);
         _ = ApplyAdBlockRulesAsync(webViewHandle);
     }
 

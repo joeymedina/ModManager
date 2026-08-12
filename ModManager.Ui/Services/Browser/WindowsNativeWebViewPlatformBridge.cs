@@ -30,6 +30,7 @@ public sealed class WindowsNativeWebViewPlatformBridge : INativeWebViewPlatformB
     private readonly AdBlockService _adBlockService;
     private readonly Func<BrowserTabViewModel?> _getViewModel;
     private readonly Action<string> _onAdBlocked;
+    private readonly Action<Uri> _onNewTabRequested;
     private NativeWebView? _browser;
     private CoreWebView2? _coreWebView;
     private CoreWebView2DownloadOperation? _activeDownloadOperation;
@@ -37,11 +38,13 @@ public sealed class WindowsNativeWebViewPlatformBridge : INativeWebViewPlatformB
     public WindowsNativeWebViewPlatformBridge(
         AdBlockService adBlockService,
         Func<BrowserTabViewModel?> getViewModel,
-        Action<string> onAdBlocked)
+        Action<string> onAdBlocked,
+        Action<Uri> onNewTabRequested)
     {
         _adBlockService = adBlockService;
         _getViewModel = getViewModel;
         _onAdBlocked = onAdBlocked;
+        _onNewTabRequested = onNewTabRequested;
     }
 
     public void Attach(NativeWebView browser)
@@ -65,6 +68,7 @@ public sealed class WindowsNativeWebViewPlatformBridge : INativeWebViewPlatformB
         {
             _coreWebView.WebResourceRequested -= OnWebResourceRequested;
             _coreWebView.DownloadStarting -= OnDownloadStarting;
+            _coreWebView.NewWindowRequested -= OnNewWindowRequested;
             _coreWebView = null;
         }
 
@@ -112,6 +116,7 @@ public sealed class WindowsNativeWebViewPlatformBridge : INativeWebViewPlatformB
 
         _coreWebView.WebResourceRequested += OnWebResourceRequested;
         _coreWebView.DownloadStarting += OnDownloadStarting;
+        _coreWebView.NewWindowRequested += OnNewWindowRequested;
     }
 
     private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
@@ -129,6 +134,19 @@ public sealed class WindowsNativeWebViewPlatformBridge : INativeWebViewPlatformB
             204,
             "No Content",
             "Content-Length: 0");
+    }
+
+    private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out Uri? uri))
+        {
+            return;
+        }
+
+        // Handled=true with no NewWindow assigned tells WebView2 not to open anything itself;
+        // the target URL is opened as a new app tab instead via _onNewTabRequested.
+        e.Handled = true;
+        Dispatcher.UIThread.Post(() => _onNewTabRequested(uri));
     }
 
     private void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
