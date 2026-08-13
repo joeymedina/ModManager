@@ -29,6 +29,16 @@
     </StackPanel>
 
     <StackPanel Spacing="4" IsVisible="{Binding HasArchivePreview}">
+      <TextBlock Text="Category (optional)" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <AutoCompleteBox PlaceholderText="Pick a category or type a new one"
+                       ItemsSource="{Binding CategorySuggestions}"
+                       Text="{Binding InstallCategoryInput}"
+                       FilterMode="Contains"
+                       MinimumPrefixLength="0"
+                       IsEnabled="{Binding !IsBusy}" />
+    </StackPanel>
+
+    <StackPanel Spacing="4" IsVisible="{Binding HasArchivePreview}">
       <TextBlock Text="Files to install" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
       <ListBox ItemsSource="{Binding ArchivePreviewEntries}"
                SelectionMode="Toggle"

@@ -54,6 +54,10 @@ public partial class ModsPageViewModel : ViewModelBase
 
     public ObservableCollection<string> ExistingGroupNames { get; } = [];
 
+    public ObservableCollection<string> CategorySuggestions { get; } = [];
+
+    public ObservableCollection<string> CategoryFilterOptions { get; } = ["All", "Uncategorized"];
+
     public IReadOnlyList<ModsListMode> ListModes { get; } =
         [ModsListMode.Flat, ModsListMode.Folder, ModsListMode.Group];
 
@@ -62,6 +66,9 @@ public partial class ModsPageViewModel : ViewModelBase
 
     [ObservableProperty]
     private ModsStatusFilter _statusFilter = ModsStatusFilter.All;
+
+    [ObservableProperty]
+    private string _categoryFilter = "All";
 
     [ObservableProperty]
     private string _modsFolderPath = string.Empty;
@@ -100,6 +107,9 @@ public partial class ModsPageViewModel : ViewModelBase
     private string _installDisplayName = string.Empty;
 
     [ObservableProperty]
+    private string _installCategoryInput = string.Empty;
+
+    [ObservableProperty]
     private bool _hasArchivePreview;
 
     [ObservableProperty]
@@ -122,6 +132,12 @@ public partial class ModsPageViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _addToGroupStatusMessage = string.Empty;
+
+    [ObservableProperty]
+    private string _categoryInput = string.Empty;
+
+    [ObservableProperty]
+    private string _setCategoryStatusMessage = string.Empty;
 
     public bool HasSelection => SelectedCount > 0;
 
@@ -510,6 +526,56 @@ public partial class ModsPageViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task SetCategoryAsync()
+    {
+        if (!RequireSelection(out int count))
+        {
+            return;
+        }
+
+        CategoryInput = string.Empty;
+        SetCategoryStatusMessage = string.Empty;
+
+        if (!await _dialogService.ShowAsync("Set category", AppDialog.SetCategory, this, "Set"))
+        {
+            return;
+        }
+
+        List<string> paths = [.. SelectedFiles.Select(file => file.RelativePath)];
+        IsBusy = true;
+        StatusMessage = "Setting category…";
+
+        try
+        {
+            ArchiveInstallResult<string?> result = await _modsFolderUseCase.SetCategoryAsync(
+                ModsFolderPath.Trim(),
+                paths,
+                CategoryInput.Trim());
+
+            if (!result.Success)
+            {
+                ErrorMessage = result.Error ?? "Could not set category.";
+                StatusMessage = "Could not set category.";
+                return;
+            }
+
+            await LoadFilesCoreAsync();
+            StatusMessage = result.Value is { } category
+                ? $"Set category \"{category}\" on {count} file(s)."
+                : $"Cleared category on {count} file(s).";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Setting category on {FileCount} file(s) failed", paths.Count);
+            ErrorMessage = $"Could not set category: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
     private async Task InstallFromFileAsync()
     {
         string? picked = await _dialogService.PickFileAsync("Choose a mod archive", InstallableExtensions);
@@ -646,6 +712,7 @@ public partial class ModsPageViewModel : ViewModelBase
                 selected,
                 layout,
                 InstallDisplayName.Trim(),
+                string.IsNullOrWhiteSpace(InstallCategoryInput) ? null : InstallCategoryInput.Trim(),
                 new InstallSource(provider, _pendingInstallModPageUri?.ToString(), _pendingInstallSourceUri?.ToString()),
                 version: null);
 
@@ -677,6 +744,7 @@ public partial class ModsPageViewModel : ViewModelBase
     {
         ArchivePathToInstall = string.Empty;
         InstallDisplayName = string.Empty;
+        InstallCategoryInput = string.Empty;
         InstallStatusMessage = string.Empty;
         _previewedPath = string.Empty;
         HasArchivePreview = false;
@@ -754,6 +822,31 @@ public partial class ModsPageViewModel : ViewModelBase
             ExistingGroupNames.Add(name);
         }
 
+        List<string> usedCategories = [.. files
+            .Select(file => file.Category)
+            .Where(category => !string.IsNullOrWhiteSpace(category))
+            .Select(category => category!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+
+        CategorySuggestions.Clear();
+        foreach (string name in ModCategories.Suggested.Union(usedCategories, StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+        {
+            CategorySuggestions.Add(name);
+        }
+
+        CategoryFilterOptions.Clear();
+        CategoryFilterOptions.Add("All");
+        CategoryFilterOptions.Add("Uncategorized");
+        foreach (string name in usedCategories.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+        {
+            CategoryFilterOptions.Add(name);
+        }
+
+        if (!CategoryFilterOptions.Contains(CategoryFilter))
+        {
+            CategoryFilter = "All";
+        }
+
         ReplaceFiles(files);
         StatusMessage = files.Count == 0
             ? "No mod files found."
@@ -763,6 +856,8 @@ public partial class ModsPageViewModel : ViewModelBase
     partial void OnSearchTextChanged(string value) => ApplyFilter();
 
     partial void OnStatusFilterChanged(ModsStatusFilter value) => ApplyFilter();
+
+    partial void OnCategoryFilterChanged(string value) => ApplyFilter();
 
     partial void OnSelectedCountChanged(int value) => OnPropertyChanged(nameof(HasSelection));
 
@@ -789,6 +884,13 @@ public partial class ModsPageViewModel : ViewModelBase
             ModsStatusFilter.Enabled => query.Where(file => file.State == ModFileState.Enabled),
             ModsStatusFilter.Disabled => query.Where(file => file.State != ModFileState.Enabled),
             _ => query,
+        };
+
+        query = CategoryFilter switch
+        {
+            "All" => query,
+            "Uncategorized" => query.Where(file => string.IsNullOrEmpty(file.Category)),
+            _ => query.Where(file => string.Equals(file.Category, CategoryFilter, StringComparison.OrdinalIgnoreCase)),
         };
 
         List<ModFileViewModel> filtered = [.. query];
@@ -1001,6 +1103,13 @@ public partial class ModsPageViewModel : ViewModelBase
 
         public Task RemoveFromGroupAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public Task<ArchiveInstallResult<string?>> SetCategoryAsync(
+            string modsFolderPath,
+            IReadOnlyList<string> relativePaths,
+            string? category,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ArchiveInstallResult<string?>.Fail("Not available at design time."));
     }
 
     private sealed class DesignTimeArchiveInstallService : IArchiveInstallService
@@ -1013,6 +1122,7 @@ public partial class ModsPageViewModel : ViewModelBase
             IReadOnlySet<string> selectedEntryNames,
             ModsFolderLayout layout,
             string displayName,
+            string? category,
             InstallSource source,
             string? version,
             CancellationToken cancellationToken = default)

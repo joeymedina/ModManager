@@ -66,4 +66,16 @@ public interface IModsFolderUseCase
     /// a no-op. A group left with no members is dropped.
     /// </summary>
     Task RemoveFromGroupAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets (or clears, when <paramref name="category"/> is null or blank) the category on the given
+    /// (already-discovered) files. Unlike groups, a category has no separate list — it's a plain field
+    /// on each file's manifest entry. All-or-nothing: fails if any path can't be found under either
+    /// root.
+    /// </summary>
+    Task<ArchiveInstallResult<string?>> SetCategoryAsync(
+        string modsFolderPath,
+        IReadOnlyList<string> relativePaths,
+        string? category,
+        CancellationToken cancellationToken = default);
 }

@@ -7,6 +7,7 @@ public enum AppDialog
     Adopt,
     AddToGroup,
     ThemeEditor,
+    SetCategory,
 }
 
 public interface IDialogService

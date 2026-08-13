@@ -20,6 +20,7 @@ public interface IArchiveInstallService
         IReadOnlySet<string> selectedEntryNames,
         ModsFolderLayout layout,
         string displayName,
+        string? category,
         InstallSource source,
         string? version,
         CancellationToken cancellationToken = default);

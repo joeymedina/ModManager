@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:ModManager.Ui.ViewModels"
              xmlns:ui="using:FluentAvalonia.UI.Controls"
+             xmlns:conv="using:ModManager.Ui.Converters"
              mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
              x:Class="ModManager.Ui.Views.ModsPageView"
              x:Name="ModsRoot"
@@ -34,6 +35,18 @@
     <Style Selector="TextBlock.label">
       <Setter Property="Opacity" Value="0.65" />
       <Setter Property="FontSize" Value="12" />
+    </Style>
+    <!-- Background is set per-instance from CategoryColorConverter, keyed off the category name.
+         The padding is deliberately 1px heavier on top than the bottom: a TextBlock reserves room
+         below the baseline for descenders, which most category names ("CAS", "UI") never use, so
+         even padding leaves the letters riding visibly high in the pill. -->
+    <Style Selector="Border.categoryChip">
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="8,3,8,1" />
+    </Style>
+    <Style Selector="Border.categoryChip TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="White" />
     </Style>
     <!-- The row switch is the state readout, so it carries no On/Off caption of its own. -->
     <Style Selector="ToggleSwitch.row">
@@ -75,7 +88,7 @@
     </Grid>
 
     <!-- Find: search, status chips, and how the list is grouped. -->
-    <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Margin="0,0,0,10">
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12" Margin="0,0,0,10">
       <TextBox Grid.Column="0"
                PlaceholderText="Search by name or folder"
                Text="{Binding SearchText}"
@@ -110,6 +123,13 @@
       </StackPanel>
 
       <ComboBox Grid.Column="2"
+                ItemsSource="{Binding CategoryFilterOptions}"
+                SelectedItem="{Binding CategoryFilter}"
+                MinWidth="130"
+                VerticalAlignment="Center"
+                ToolTip.Tip="Filter by category" />
+
+      <ComboBox Grid.Column="3"
                 ItemsSource="{Binding ListModes}"
                 SelectedItem="{Binding ListMode}"
                 MinWidth="130"
@@ -145,6 +165,7 @@
             <Button Content="Enable" Command="{Binding EnableSelectedCommand}" IsEnabled="{Binding !IsBusy}" />
             <Button Content="Disable" Command="{Binding DisableSelectedCommand}" IsEnabled="{Binding !IsBusy}" />
             <Button Content="Group…" Command="{Binding AddToGroupCommand}" IsEnabled="{Binding !IsBusy}" />
+            <Button Content="Category…" Command="{Binding SetCategoryCommand}" IsEnabled="{Binding !IsBusy}" />
             <Button Content="More" IsEnabled="{Binding !IsBusy}">
               <Button.Flyout>
                 <MenuFlyout>
@@ -174,6 +195,7 @@
                   <Separator />
                   <MenuItem Header="Add to group…" Command="{Binding AddToGroupCommand}" />
                   <MenuItem Header="Remove from group" Command="{Binding UngroupSelectedCommand}" />
+                  <MenuItem Header="Set category…" Command="{Binding SetCategoryCommand}" />
                   <MenuItem Header="Adopt…" Command="{Binding AdoptSelectedCommand}" />
                   <Separator />
                   <MenuItem Header="Delete…" Command="{Binding DeleteSelectedCommand}" />
@@ -181,10 +203,16 @@
               </ListBox.ContextFlyout>
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:ModFileViewModel">
-                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,2">
-                    <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,8">
+                    <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
                       <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                       <TextBlock Text="{Binding FolderText}" Classes="label" TextTrimming="CharacterEllipsis" />
+                      <Border Classes="categoryChip"
+                              Background="{Binding Category, Converter={x:Static conv:CategoryColorConverter.Instance}}"
+                              HorizontalAlignment="Left"
+                              IsVisible="{Binding Category, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <TextBlock Text="{Binding Category}" />
+                      </Border>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                       <!-- A two-state switch can't say "conflicted", so that state keeps a label. -->
@@ -218,14 +246,32 @@
                       IsEnabled="{Binding !IsBusy}">
               <TreeView.ItemTemplate>
                 <TreeDataTemplate x:DataType="vm:ModTreeNodeViewModel" ItemsSource="{Binding Children}">
-                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="0,2">
-                    <ui:FASymbolIcon Grid.Column="0"
+                  <!-- The icon and the name share row 0 so they centre on each other, and the chip sits
+                       in row 1, which collapses to nothing when hidden. Stacking the name and chip in a
+                       StackPanel instead would centre the icon (and the expander chevron, which the
+                       TreeViewItem template centres on the whole header) against both lines, leaving the
+                       name riding high above them.
+                       Column 0 is a fixed width, not Auto, so file rows (icon hidden) still reserve the
+                       same space as folder rows and every row's name starts at the same x position. -->
+                  <Grid ColumnDefinitions="20,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" Margin="0,8">
+                    <ui:FASymbolIcon Grid.Row="0"
+                                     Grid.Column="0"
                                      Symbol="Folder"
                                      Opacity="0.6"
+                                     HorizontalAlignment="Center"
                                      VerticalAlignment="Center"
                                      IsVisible="{Binding IsFolder}" />
-                    <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" />
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding !IsFolder}">
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" />
+                    <Border Grid.Row="1"
+                            Grid.Column="1"
+                            Classes="categoryChip"
+                            Background="{Binding File.Category, Converter={x:Static conv:CategoryColorConverter.Instance}}"
+                            HorizontalAlignment="Left"
+                            Margin="0,4,0,0"
+                            IsVisible="{Binding File.Category, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
+                      <TextBlock Text="{Binding File.Category}" />
+                    </Border>
+                    <StackPanel Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding !IsFolder}">
                       <TextBlock Text="Conflicted"
                                  Classes="conflict"
                                  IsVisible="{Binding File.IsConflicted}"
@@ -254,9 +300,20 @@
                       IsEnabled="{Binding !IsBusy}">
               <TreeView.ItemTemplate>
                 <TreeDataTemplate x:DataType="vm:ModGroupNodeViewModel" ItemsSource="{Binding Children}">
-                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,2">
-                    <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center" />
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                  <!-- Name in row 0, chip in row 1 (collapses when hidden), so the expander chevron
+                       centres on the name rather than on both lines. See the folder tree above. -->
+                  <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" Margin="0,8">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center" />
+                    <Border Grid.Row="1"
+                            Grid.Column="0"
+                            Classes="categoryChip"
+                            Background="{Binding File.Category, Converter={x:Static conv:CategoryColorConverter.Instance}}"
+                            HorizontalAlignment="Left"
+                            Margin="0,4,0,0"
+                            IsVisible="{Binding File.Category, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
+                      <TextBlock Text="{Binding File.Category}" />
+                    </Border>
+                    <StackPanel Grid.Row="0" Grid.RowSpan="2" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                       <!-- Group headers have no File, and an unresolved path would leave IsVisible
                            at its default of true, labelling every group "Conflicted". -->
                       <TextBlock Text="Conflicted"
@@ -295,12 +352,22 @@
               <ContentControl.ContentTemplate>
                 <DataTemplate x:DataType="vm:ModFileViewModel">
             <StackPanel Spacing="12">
-              <Border Background="{DynamicResource ControlFillColorDefaultBrush}"
-                      CornerRadius="12"
-                      Padding="10,3"
-                      HorizontalAlignment="Left">
-                <TextBlock Text="{Binding StatusText}" FontSize="12" />
-              </Border>
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Border Background="{DynamicResource ControlFillColorDefaultBrush}"
+                        CornerRadius="12"
+                        Padding="10,3"
+                        HorizontalAlignment="Left">
+                  <TextBlock Text="{Binding StatusText}" FontSize="12" />
+                </Border>
+                <!-- Top-heavy padding for the same reason as the chip style above. -->
+                <Border Classes="categoryChip"
+                        Background="{Binding Category, Converter={x:Static conv:CategoryColorConverter.Instance}}"
+                        CornerRadius="12"
+                        Padding="10,4,10,2"
+                        IsVisible="{Binding Category, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Text="{Binding Category}" FontSize="12" />
+                </Border>
+              </StackPanel>
 
               <ui:FAInfoBar Severity="Warning"
                             Title="Two copies of this file"

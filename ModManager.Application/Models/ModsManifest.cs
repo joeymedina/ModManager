@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace ModManager.Application.Models;
 
-public sealed record ManifestFileEntry(string RelativePath, string? DisplayName = null, string? GroupId = null, string? Notes = null);
+public sealed record ManifestFileEntry(string RelativePath, string? DisplayName = null, string? GroupId = null, string? Notes = null, string? Category = null);
 
 public sealed record ModGroup(string GroupId, string Name, IReadOnlyList<string> Members);
 

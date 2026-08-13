@@ -253,6 +253,91 @@ public sealed class ModsFolderServiceTests
         Assert.HasCount(1, files);
     }
 
+    [TestMethod]
+    public async Task RemoveFromGroupAsync_WhenEntryHasOnlyACategory_ThenIsNotPruned()
+    {
+        CreateFile(modsFolderPath, "A.package");
+
+        var service = new ModsFolderService();
+
+        await service.AddToGroupAsync(modsFolderPath, ["A.package"], "Solo", CancellationToken.None);
+        await service.SetCategoryAsync(modsFolderPath, ["A.package"], "Scripts", CancellationToken.None);
+        await service.RemoveFromGroupAsync(modsFolderPath, ["A.package"], CancellationToken.None);
+
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+        ModFile file = files.Single();
+        Assert.IsNull(file.GroupId);
+        Assert.AreEqual("Scripts", file.Category);
+    }
+
+    [TestMethod]
+    public async Task SetCategoryAsync_WhenFileHasNoExistingEntry_ThenCreatesOneWithTheCategory()
+    {
+        CreateFile(modsFolderPath, "A.package");
+
+        var service = new ModsFolderService();
+
+        ArchiveInstallResult<string?> result = await service.SetCategoryAsync(modsFolderPath, ["A.package"], "Scripts", CancellationToken.None);
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual("Scripts", result.Value);
+
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+        Assert.AreEqual("Scripts", files.Single().Category);
+    }
+
+    [TestMethod]
+    public async Task SetCategoryAsync_WhenCategoryIsBlank_ThenClearsExistingCategory()
+    {
+        CreateFile(modsFolderPath, "A.package");
+
+        var service = new ModsFolderService();
+        await service.SetCategoryAsync(modsFolderPath, ["A.package"], "Scripts", CancellationToken.None);
+
+        ArchiveInstallResult<string?> result = await service.SetCategoryAsync(modsFolderPath, ["A.package"], "   ", CancellationToken.None);
+
+        Assert.IsTrue(result.Success);
+        Assert.IsNull(result.Value);
+
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsNull(files.Single().Category);
+    }
+
+    [TestMethod]
+    public async Task SetCategoryAsync_WhenClearingLeavesNoOtherMetadata_ThenPrunesTheEntry()
+    {
+        CreateFile(modsFolderPath, "A.package");
+
+        var service = new ModsFolderService();
+        await service.SetCategoryAsync(modsFolderPath, ["A.package"], "Scripts", CancellationToken.None);
+        await service.SetCategoryAsync(modsFolderPath, ["A.package"], null, CancellationToken.None);
+
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsNull(files.Single().Category);
+        Assert.IsNull(files.Single().DisplayName);
+        Assert.IsNull(files.Single().GroupId);
+    }
+
+    [TestMethod]
+    public async Task SetCategoryAsync_WhenPathNotFound_ThenFailsAllOrNothing()
+    {
+        CreateFile(modsFolderPath, "Real.package");
+
+        var service = new ModsFolderService();
+
+        ArchiveInstallResult<string?> result = await service.SetCategoryAsync(
+            modsFolderPath,
+            ["Real.package", "Missing.package"],
+            "Scripts",
+            CancellationToken.None);
+
+        Assert.IsFalse(result.Success);
+        StringAssert.Contains(result.Error, "Missing.package");
+
+        IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsNull(files.Single().Category);
+    }
+
     private static void CreateFile(string root, string relativePath)
     {
         string fullPath = Path.Combine(root, relativePath);

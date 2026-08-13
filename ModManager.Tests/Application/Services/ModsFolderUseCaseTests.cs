@@ -53,4 +53,23 @@ public sealed class ModsFolderUseCaseTests
         Assert.AreSame(expected, actual);
         repositoryMock.Verify(repository => repository.DisableAsync("C:/Mods", paths, CancellationToken.None), Times.Once);
     }
+
+    [TestMethod]
+    public async Task SetCategoryAsync_WhenRepositoryReturnsResult_ThenReturnsSameResult()
+    {
+        IReadOnlyList<string> paths = ["WW_main.package"];
+        ArchiveInstallResult<string?> expected = ArchiveInstallResult<string?>.Ok("Scripts");
+        var repositoryMock = new Mock<IModsFolderRepository>(MockBehavior.Strict);
+
+        repositoryMock
+            .Setup(repository => repository.SetCategoryAsync("C:/Mods", paths, "Scripts", CancellationToken.None))
+            .ReturnsAsync(expected);
+
+        var useCase = new ModsFolderUseCase(repositoryMock.Object);
+
+        ArchiveInstallResult<string?> actual = await useCase.SetCategoryAsync("C:/Mods", paths, "Scripts", CancellationToken.None);
+
+        Assert.AreSame(expected, actual);
+        repositoryMock.Verify(repository => repository.SetCategoryAsync("C:/Mods", paths, "Scripts", CancellationToken.None), Times.Once);
+    }
 }

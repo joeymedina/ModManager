@@ -87,6 +87,7 @@ public sealed class ArchiveInstallServiceTests
             selectedEntryNames: new HashSet<string> { "Main.package" },
             layout,
             "My Mod",
+            category: null,
             new InstallSource("manual", null, null),
             version: null);
 
@@ -109,6 +110,7 @@ public sealed class ArchiveInstallServiceTests
             selectedEntryNames: new HashSet<string> { "Scripts/Sub/mod.ts4script" },
             layout,
             "Script Mod",
+            category: null,
             new InstallSource("manual", null, null),
             version: null);
 
@@ -129,6 +131,7 @@ public sealed class ArchiveInstallServiceTests
             selectedEntryNames: new HashSet<string> { "Main.package" },
             layout,
             "My Mod",
+            category: null,
             new InstallSource("manual", null, null),
             version: null);
 
@@ -148,6 +151,7 @@ public sealed class ArchiveInstallServiceTests
             selectedEntryNames: new HashSet<string> { "Main.package" },
             layout,
             "My Mod",
+            category: null,
             new InstallSource("manual", null, null),
             version: "1.0");
 
@@ -162,6 +166,30 @@ public sealed class ArchiveInstallServiceTests
     }
 
     [TestMethod]
+    public async Task InstallAsync_WhenCategoryIsGiven_ThenRecordsItInManifestForLaterLoad()
+    {
+        string archivePath = CreateZip(("Main.package", "a"));
+        var manifestService = new ModsManifestService();
+        var archiveService = new ArchiveInstallService(manifestService);
+
+        ArchiveInstallResult<InstallRecord> installResult = await archiveService.InstallAsync(
+            archivePath,
+            selectedEntryNames: new HashSet<string> { "Main.package" },
+            layout,
+            "My Mod",
+            category: "Scripts",
+            new InstallSource("manual", null, null),
+            version: null);
+
+        Assert.IsTrue(installResult.Success);
+
+        var folderService = new ModsFolderService();
+        IReadOnlyList<ModFile> files = await folderService.LoadFilesAsync(modsFolderPath, CancellationToken.None);
+
+        Assert.AreEqual("Scripts", files.Single().Category);
+    }
+
+    [TestMethod]
     public async Task InstallAsync_WhenBareModFile_ThenInstallsAsSingleFile()
     {
         string bareFilePath = Path.Combine(sandboxPath, "loose.package");
@@ -173,6 +201,7 @@ public sealed class ArchiveInstallServiceTests
             selectedEntryNames: new HashSet<string>(),
             layout,
             "Loose Mod",
+            category: null,
             new InstallSource("manual", null, null),
             version: null);
 

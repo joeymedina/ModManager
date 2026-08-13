@@ -67,6 +67,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
         IReadOnlySet<string> selectedEntryNames,
         ModsFolderLayout layout,
         string displayName,
+        string? category,
         InstallSource source,
         string? version,
         CancellationToken cancellationToken = default)
@@ -103,7 +104,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
                 return bareFileResult;
             }
 
-            await PersistRecordAsync(layout, displayName, bareFileResult.Value!, cancellationToken);
+            await PersistRecordAsync(layout, displayName, category, bareFileResult.Value!, cancellationToken);
             return bareFileResult;
         }
 
@@ -130,7 +131,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
             return ArchiveInstallResult<InstallRecord>.Fail(ex.Message);
         }
 
-        await PersistRecordAsync(layout, displayName, record, cancellationToken);
+        await PersistRecordAsync(layout, displayName, category, record, cancellationToken);
         _logger.LogInformation(
             "Installed \"{DisplayName}\" as install {InstallId}: {InstalledCount} file(s) into {TargetRoot}, {SkippedCount} skipped",
             displayName,
@@ -251,13 +252,13 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
             skipped);
     }
 
-    private async Task PersistRecordAsync(ModsFolderLayout layout, string displayName, InstallRecord record, CancellationToken cancellationToken)
+    private async Task PersistRecordAsync(ModsFolderLayout layout, string displayName, string? category, InstallRecord record, CancellationToken cancellationToken)
     {
         ModsManifest manifest = await manifestService.LoadAsync(layout, cancellationToken);
 
         HashSet<string> installedPaths = [.. record.Files.Select(file => file.RelativePath)];
         List<ManifestFileEntry> files = [.. manifest.Files.Where(entry => !installedPaths.Contains(entry.RelativePath))];
-        files.AddRange(record.Files.Select(file => new ManifestFileEntry(file.RelativePath, displayName)));
+        files.AddRange(record.Files.Select(file => new ManifestFileEntry(file.RelativePath, displayName, Category: category)));
 
         ModsManifest updated = manifest with { Files = files, Installs = [.. manifest.Installs, record] };
         await manifestService.SaveAsync(layout, updated, cancellationToken);

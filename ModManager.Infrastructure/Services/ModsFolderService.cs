@@ -103,6 +103,7 @@ public sealed class ModsFolderService : IModsFolderRepository
         {
             DisplayName = entry?.DisplayName,
             GroupId = entry?.GroupId,
+            Category = entry?.Category,
             InstallId = record?.InstallId,
             Version = record?.Version,
             InstalledUtc = record?.InstalledUtc,
@@ -366,9 +367,61 @@ public sealed class ModsFolderService : IModsFolderRepository
 
         List<ManifestFileEntry> files = [.. manifest.Files
             .Select(entry => targetPaths.Contains(entry.RelativePath) ? entry with { GroupId = null } : entry)
-            .Where(entry => entry.DisplayName is not null || entry.GroupId is not null || entry.Notes is not null)];
+            .Where(entry => entry.DisplayName is not null || entry.GroupId is not null || entry.Notes is not null || entry.Category is not null)];
 
         await _manifestService.SaveAsync(layout, manifest with { Files = files, Groups = groups }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sets (or clears, when <paramref name="category"/> is null or blank) the category on the given
+    /// files. Unlike groups, a category is a plain field per file — no separate list, no id-minting.
+    /// All-or-nothing: fails if any path can't be found under either root.
+    /// </summary>
+    public async Task<ArchiveInstallResult<string?>> SetCategoryAsync(
+        string modsFolderPath,
+        IReadOnlyList<string> relativePaths,
+        string? category,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+
+        if (relativePaths.Count == 0)
+        {
+            return ArchiveInstallResult<string?>.Fail("Select at least one file first.");
+        }
+
+        string? normalizedCategory = string.IsNullOrWhiteSpace(category) ? null : category.Trim();
+
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        IReadOnlyList<ModFile> discovered = _discoveryService.DiscoverFiles(layout);
+
+        (List<ModFile> matched, List<ModFileFailure> failures) = MatchRequestedPaths(discovered, relativePaths, "SetCategory");
+        if (failures.Count > 0)
+        {
+            string missing = string.Join(", ", failures.Select(failure => failure.RelativePath));
+            _logger.LogWarning("Set category abandoned: {MissingCount} requested file(s) not found", failures.Count);
+            return ArchiveInstallResult<string?>.Fail($"File(s) not found: {missing}");
+        }
+
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+        HashSet<string> targetPaths = new(matched.Select(file => file.RelativePath), StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, ManifestFileEntry> entriesByPath = manifest.Files
+            .ToDictionary(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase);
+
+        List<ManifestFileEntry> files = [.. manifest.Files
+            .Select(entry => targetPaths.Contains(entry.RelativePath) ? entry with { Category = normalizedCategory } : entry)
+            .Where(entry => entry.DisplayName is not null || entry.GroupId is not null || entry.Notes is not null || entry.Category is not null)];
+
+        if (normalizedCategory is not null)
+        {
+            files.AddRange(targetPaths
+                .Where(path => !entriesByPath.ContainsKey(path))
+                .Select(path => new ManifestFileEntry(path, Category: normalizedCategory)));
+        }
+
+        await _manifestService.SaveAsync(layout, manifest with { Files = files }, cancellationToken);
+        return ArchiveInstallResult<string?>.Ok(normalizedCategory);
     }
 
     /// <summary>

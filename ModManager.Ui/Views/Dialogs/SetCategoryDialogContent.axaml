@@ -1,0 +1,28 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             x:Class="ModManager.Ui.Views.Dialogs.SetCategoryDialogContent"
+             x:DataType="vm:ModsPageViewModel"
+             Width="420">
+  <StackPanel Spacing="12">
+    <TextBlock Text="{Binding SelectedCount, StringFormat='Setting the category on {0} file(s).'}"
+               TextWrapping="Wrap"
+               Opacity="0.75" />
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Category" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <AutoCompleteBox PlaceholderText="Pick a category or type a new one — leave blank to clear"
+                       ItemsSource="{Binding CategorySuggestions}"
+                       Text="{Binding CategoryInput}"
+                       FilterMode="Contains"
+                       MinimumPrefixLength="0"
+                       IsEnabled="{Binding !IsBusy}"
+                       GotFocus="OnCategoryBoxGotFocus" />
+    </StackPanel>
+
+    <TextBlock Text="{Binding SetCategoryStatusMessage}"
+               TextWrapping="Wrap"
+               Opacity="0.8"
+               IsVisible="{Binding SetCategoryStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+  </StackPanel>
+</UserControl>

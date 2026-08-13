@@ -207,6 +207,18 @@ public sealed class ModFileViewModelTests
         Assert.Contains(nameof(ModFileViewModel.FolderText), changedProperties);
     }
 
+    // --- Category ---------------------------------------------------------
+
+    [TestMethod]
+    public void Apply_WhenFileHasCategory_ThenSetsCategoryProperty()
+    {
+        ModFile file = CreateModFile("a.package") with { Category = "Scripts" };
+
+        ModFileViewModel viewModel = new(file);
+
+        Assert.AreEqual("Scripts", viewModel.Category);
+    }
+
     [TestMethod]
     public void OnModPageUrlChanged_WhenModPageUrlIsSet_ThenRaisesPropertyChangedForHasModPage()
     {

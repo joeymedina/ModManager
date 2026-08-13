@@ -42,6 +42,9 @@ public partial class ModFileViewModel : ViewModelBase
     private string? _groupId;
 
     [ObservableProperty]
+    private string? _category;
+
+    [ObservableProperty]
     private string? _installId;
 
     [ObservableProperty]
@@ -108,6 +111,7 @@ public partial class ModFileViewModel : ViewModelBase
             && Folder.Contains('/');
         DisplayName = file.DisplayName;
         GroupId = file.GroupId;
+        Category = file.Category;
         InstallId = file.InstallId;
         Version = file.Version;
         InstalledUtc = file.InstalledUtc;

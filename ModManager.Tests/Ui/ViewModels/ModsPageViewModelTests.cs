@@ -205,6 +205,46 @@ public sealed class ModsPageViewModelTests
         Assert.HasCount(2, group.Children);
     }
 
+    [TestMethod]
+    public async Task ApplyFilter_WhenCategoryFilterIsSet_ThenOnlyMatchingFilesShow()
+    {
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.LoadFilesAsync("C:/Mods", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<ModFile>)
+            [
+                new ModFile("foo.package", ModFileState.Enabled, SizeBytes: 100, ModifiedUtc: DateTime.UtcNow, Category: "Scripts"),
+                new ModFile("bar.package", ModFileState.Enabled, SizeBytes: 100, ModifiedUtc: DateTime.UtcNow, Category: "CAS"),
+            ]);
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        await viewModel.RefreshCommand.ExecuteAsync(null);
+
+        viewModel.CategoryFilter = "Scripts";
+
+        ModFileViewModel remaining = viewModel.Files.Single();
+        Assert.AreEqual("foo.package", remaining.RelativePath);
+    }
+
+    [TestMethod]
+    public async Task ApplyFilter_WhenCategoryFilterIsUncategorized_ThenOnlyFilesWithNoCategoryShow()
+    {
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.LoadFilesAsync("C:/Mods", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<ModFile>)
+            [
+                new ModFile("foo.package", ModFileState.Enabled, SizeBytes: 100, ModifiedUtc: DateTime.UtcNow, Category: "Scripts"),
+                new ModFile("bar.package", ModFileState.Enabled, SizeBytes: 100, ModifiedUtc: DateTime.UtcNow),
+            ]);
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        await viewModel.RefreshCommand.ExecuteAsync(null);
+
+        viewModel.CategoryFilter = "Uncategorized";
+
+        ModFileViewModel remaining = viewModel.Files.Single();
+        Assert.AreEqual("bar.package", remaining.RelativePath);
+    }
+
     // --- Tree selection syncing -------------------------------------------
 
     [TestMethod]
@@ -382,6 +422,60 @@ public sealed class ModsPageViewModelTests
         await viewModel.AddToGroupCommand.ExecuteAsync(null);
 
         Assert.AreEqual("A group with that name already exists.", viewModel.ErrorMessage);
+        modsFolderUseCaseMock.Verify(
+            useCase => useCase.LoadFilesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SetCategoryAsync_WhenCategoryInputIsBlank_ThenClearsCategoryWithoutAnError()
+    {
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.LoadFilesAsync("C:/Mods", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<ModFile>)[CreateModFile("a.package", ModFileState.Enabled)]);
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.SetCategoryAsync("C:/Mods", It.IsAny<IReadOnlyList<string>>(), string.Empty, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ArchiveInstallResult<string?>.Ok(null));
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        await viewModel.RefreshCommand.ExecuteAsync(null);
+        viewModel.SelectedFiles.Add(viewModel.Files.Single());
+        dialogServiceMock
+            .Setup(dialog => dialog.ShowAsync(It.IsAny<string>(), AppDialog.SetCategory, It.IsAny<object>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+
+        await viewModel.SetCategoryCommand.ExecuteAsync(null);
+
+        Assert.AreEqual(string.Empty, viewModel.ErrorMessage);
+        StringAssert.Contains(viewModel.StatusMessage, "Cleared category");
+        modsFolderUseCaseMock.Verify(
+            useCase => useCase.LoadFilesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+    }
+
+    [TestMethod]
+    public async Task SetCategoryAsync_WhenUseCaseFails_ThenSetsErrorMessageVerbatimAndDoesNotReload()
+    {
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.LoadFilesAsync("C:/Mods", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<ModFile>)[CreateModFile("a.package", ModFileState.Enabled)]);
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.SetCategoryAsync("C:/Mods", It.IsAny<IReadOnlyList<string>>(), "Scripts", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ArchiveInstallResult<string?>.Fail("Something went wrong."));
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        await viewModel.RefreshCommand.ExecuteAsync(null);
+        viewModel.SelectedFiles.Add(viewModel.Files.Single());
+        // Stands in for the dialog binding: a real SetCategoryDialogContent two-way binds
+        // CategoryInput to a text box, so confirming carries whatever the user typed.
+        dialogServiceMock
+            .Setup(dialog => dialog.ShowAsync(It.IsAny<string>(), AppDialog.SetCategory, It.IsAny<object>(), It.IsAny<string>()))
+            .Callback(() => viewModel.CategoryInput = "Scripts")
+            .ReturnsAsync(true);
+
+        await viewModel.SetCategoryCommand.ExecuteAsync(null);
+
+        Assert.AreEqual("Something went wrong.", viewModel.ErrorMessage);
         modsFolderUseCaseMock.Verify(
             useCase => useCase.LoadFilesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Once);

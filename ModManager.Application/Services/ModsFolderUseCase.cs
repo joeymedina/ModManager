@@ -105,4 +105,19 @@ public sealed class ModsFolderUseCase(IModsFolderRepository repository) : IModsF
         ArgumentNullException.ThrowIfNull(relativePaths);
         return repository.RemoveFromGroupAsync(modsFolderPath, relativePaths, cancellationToken);
     }
+
+    /// <summary>
+    /// Sets (or clears, when <paramref name="category"/> is null or blank) the category on the given
+    /// files.
+    /// </summary>
+    public Task<ArchiveInstallResult<string?>> SetCategoryAsync(
+        string modsFolderPath,
+        IReadOnlyList<string> relativePaths,
+        string? category,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+        return repository.SetCategoryAsync(modsFolderPath, relativePaths, category, cancellationToken);
+    }
 }

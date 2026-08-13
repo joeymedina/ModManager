@@ -16,6 +16,7 @@ public sealed class DialogService : IDialogService
             AppDialog.Adopt => new AdoptDialogContent(),
             AppDialog.AddToGroup => new AddToGroupDialogContent(),
             AppDialog.ThemeEditor => new ThemeEditorDialogContent(),
+            AppDialog.SetCategory => new SetCategoryDialogContent(),
             _ => throw new ArgumentOutOfRangeException(nameof(dialog)),
         };
 
