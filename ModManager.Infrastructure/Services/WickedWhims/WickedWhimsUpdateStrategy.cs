@@ -116,10 +116,25 @@ internal sealed class WickedWhimsUpdateStrategy(
             return;
         }
 
+        // The manifest is user-editable (adopted files, or a manually edited raw manifest via the
+        // Settings-page viewer), so a record's RelativePath isn't guaranteed to stay under
+        // installRoot the way ExtractArchive's zip-slip guard ensures for freshly extracted files.
+        // Same containment check as ExtractArchive below, but skip-and-log instead of aborting the
+        // whole update over one bad entry.
+        string root = Path.GetFullPath(installRoot) + Path.DirectorySeparatorChar;
         HashSet<string> newPaths = new(newFiles.Select(file => file.RelativePath), StringComparer.OrdinalIgnoreCase);
         foreach (InstallRecordFile staleFile in previousRecord.Files.Where(file => !newPaths.Contains(file.RelativePath)))
         {
-            string stalePath = Path.Combine(installRoot, staleFile.RelativePath);
+            string stalePath = Path.GetFullPath(Path.Combine(installRoot, staleFile.RelativePath));
+            if (!stalePath.StartsWith(root, StringComparison.Ordinal))
+            {
+                _logger.LogWarning(
+                    "Skipped deleting a stale WickedWhims file entry escaping {InstallRoot}: {RelativePath}",
+                    installRoot,
+                    staleFile.RelativePath);
+                continue;
+            }
+
             if (File.Exists(stalePath))
             {
                 // Inferred from the previous install record, not chosen by the user — log every path so

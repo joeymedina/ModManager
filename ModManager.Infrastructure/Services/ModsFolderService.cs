@@ -425,6 +425,44 @@ public sealed class ModsFolderService : IModsFolderRepository
     }
 
     /// <summary>
+    /// Loads the full manifest for display. Never writes.
+    /// </summary>
+    public async Task<ModsManifest> LoadManifestAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+    {
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        return await _manifestService.LoadAsync(layout, cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads the manifest file's raw JSON text, for display verbatim.
+    /// </summary>
+    public async Task<ManifestRawContent> ReadManifestRawAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+    {
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        string path = ModsManifestService.GetManifestPath(layout);
+        string? raw = await _manifestService.ReadRawAsync(layout, cancellationToken);
+        return new ManifestRawContent(path, raw is not null, raw);
+    }
+
+    /// <summary>
+    /// Parses and saves manually edited manifest JSON. Rejects (without writing) JSON that doesn't
+    /// parse or uses an unsupported schema version.
+    /// </summary>
+    public async Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string modsFolderPath, string rawJson, CancellationToken cancellationToken = default)
+    {
+        if (!ModsManifestService.TryParseRaw(rawJson, out ModsManifest? parsed, out string? error))
+        {
+            _logger.LogWarning("Rejected a manually edited manifest for {ModsFolder}: {Reason}", modsFolderPath, error);
+            return ArchiveInstallResult<ModsManifest>.Fail($"That JSON isn't a valid manifest: {error}.");
+        }
+
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        await _manifestService.SaveAsync(layout, parsed!, cancellationToken);
+        _logger.LogInformation("Saved a manually edited manifest for {ModsFolder}", modsFolderPath);
+        return ArchiveInstallResult<ModsManifest>.Ok(parsed!);
+    }
+
+    /// <summary>
     /// Resolves requested relative paths against what discovery actually found. Every caller routes
     /// through here, so this is the one place a "file not found" needs logging.
     /// </summary>

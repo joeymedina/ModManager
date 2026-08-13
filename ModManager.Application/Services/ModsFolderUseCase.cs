@@ -120,4 +120,33 @@ public sealed class ModsFolderUseCase(IModsFolderRepository repository) : IModsF
         ArgumentNullException.ThrowIfNull(relativePaths);
         return repository.SetCategoryAsync(modsFolderPath, relativePaths, category, cancellationToken);
     }
+
+    /// <summary>
+    /// Loads the full manifest for display. Never writes.
+    /// </summary>
+    public Task<ModsManifest> LoadManifestAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        return repository.LoadManifestAsync(modsFolderPath, cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads the manifest file's raw JSON text, for display verbatim.
+    /// </summary>
+    public Task<ManifestRawContent> ReadManifestRawAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        return repository.ReadManifestRawAsync(modsFolderPath, cancellationToken);
+    }
+
+    /// <summary>
+    /// Parses and saves manually edited manifest JSON. Rejects (without writing) JSON that doesn't
+    /// parse or uses an unsupported schema version.
+    /// </summary>
+    public Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string modsFolderPath, string rawJson, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(rawJson);
+        return repository.SaveManifestRawAsync(modsFolderPath, rawJson, cancellationToken);
+    }
 }

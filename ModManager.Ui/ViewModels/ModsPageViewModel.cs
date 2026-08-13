@@ -206,6 +206,18 @@ public partial class ModsPageViewModel : ViewModelBase
         await RefreshAsync();
     }
 
+    /// <summary>Loads the full manifest for the current mods folder, for the Settings page's manifest viewer.</summary>
+    public Task<ModsManifest> LoadManifestAsync(CancellationToken cancellationToken = default) =>
+        _modsFolderUseCase.LoadManifestAsync(ModsFolderPath, cancellationToken);
+
+    /// <summary>Reads the current mods folder's manifest file as raw JSON text, for the Settings page's manifest viewer.</summary>
+    public Task<ManifestRawContent> ReadManifestRawAsync(CancellationToken cancellationToken = default) =>
+        _modsFolderUseCase.ReadManifestRawAsync(ModsFolderPath, cancellationToken);
+
+    /// <summary>Parses and saves manually edited manifest JSON for the current mods folder.</summary>
+    public Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string rawJson, CancellationToken cancellationToken = default) =>
+        _modsFolderUseCase.SaveManifestRawAsync(ModsFolderPath, rawJson, cancellationToken);
+
     [RelayCommand]
     private async Task RefreshAsync()
     {
@@ -1110,6 +1122,15 @@ public partial class ModsPageViewModel : ViewModelBase
             string? category,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ArchiveInstallResult<string?>.Fail("Not available at design time."));
+
+        public Task<ModsManifest> LoadManifestAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+            => Task.FromResult(ModsManifest.Empty);
+
+        public Task<ManifestRawContent> ReadManifestRawAsync(string modsFolderPath, CancellationToken cancellationToken = default)
+            => Task.FromResult(new ManifestRawContent(Path.Combine(modsFolderPath, ".modmanager.json"), false, null));
+
+        public Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string modsFolderPath, string rawJson, CancellationToken cancellationToken = default)
+            => Task.FromResult(ArchiveInstallResult<ModsManifest>.Fail("Not available at design time."));
     }
 
     private sealed class DesignTimeArchiveInstallService : IArchiveInstallService

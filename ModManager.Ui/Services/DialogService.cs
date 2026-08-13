@@ -17,6 +17,7 @@ public sealed class DialogService : IDialogService
             AppDialog.AddToGroup => new AddToGroupDialogContent(),
             AppDialog.ThemeEditor => new ThemeEditorDialogContent(),
             AppDialog.SetCategory => new SetCategoryDialogContent(),
+            AppDialog.ManifestViewer => new ManifestViewerDialogContent(),
             _ => throw new ArgumentOutOfRangeException(nameof(dialog)),
         };
 
@@ -29,6 +30,11 @@ public sealed class DialogService : IDialogService
             PrimaryButtonText = primaryText,
             CloseButtonText = "Cancel",
             DefaultButton = FAContentDialogButton.Primary,
+            // FluentAvalonia's own ContentDialogMaxWidth (~548px, matching WinUI) caps the dialog's
+            // chrome by default. Every dialog body here (all ≤480px, see e.g. ThemeEditorDialogContent
+            // and ManifestViewerDialogContent) fits comfortably under that already, so this is just
+            // headroom for a future wider dialog rather than a fix any current one needs.
+            MaxWidth = 900,
         };
 
         return await ShowCoreAsync(contentDialog) == FAContentDialogResult.Primary;

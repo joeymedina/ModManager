@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ModManager.Application.Models;
 using ModManager.Ui.Models;
 using ModManager.Ui.Services;
 
@@ -236,6 +237,42 @@ public partial class SettingsPageViewModel : ViewModelBase
         await _mods.SetModsFolderAsync(ModsFolderPath.Trim());
         ModsFolderPath = _mods.ModsFolderPath;
         StatusMessage = "Saved. The Mods page has been reloaded.";
+    }
+
+    [RelayCommand]
+    private async Task ViewManifestAsync()
+    {
+        ModsManifest manifest = await _mods.LoadManifestAsync();
+        ManifestRawContent raw = await _mods.ReadManifestRawAsync();
+        ManifestViewerViewModel viewer = new(manifest, raw);
+
+        bool primaryClicked = await _dialogService.ShowAsync("Mods manifest", AppDialog.ManifestViewer, viewer, "Save");
+        if (!primaryClicked || !viewer.HasUnsavedChanges)
+        {
+            return;
+        }
+
+        bool confirmed = await _dialogService.ConfirmAsync(
+            "Save manifest changes?",
+            "This overwrites the manifest file on disk with your edited JSON. Invalid JSON won't be "
+                + "written, but valid JSON that no longer matches your Mods folder can still mislabel or "
+                + "lose track of installed mods. This can't be undone.",
+            "Save",
+            isDestructive: true);
+        if (!confirmed)
+        {
+            return;
+        }
+
+        ArchiveInstallResult<ModsManifest> result = await _mods.SaveManifestRawAsync(viewer.RawJson);
+        if (!result.Success)
+        {
+            StatusMessage = result.Error ?? "Could not save the manifest.";
+            return;
+        }
+
+        await _mods.RefreshCommand.ExecuteAsync(null);
+        StatusMessage = "Saved the manifest.";
     }
 
     private sealed class NoopDialogService : IDialogService

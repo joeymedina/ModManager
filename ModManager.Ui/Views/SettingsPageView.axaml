@@ -78,6 +78,23 @@
         </StackPanel>
       </Border>
 
+      <Border Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+              BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+              BorderThickness="1"
+              CornerRadius="8"
+              Padding="16">
+        <StackPanel Spacing="12">
+          <StackPanel Spacing="2">
+            <TextBlock Text="Manifest" FontWeight="SemiBold" />
+            <TextBlock Text="Display names, groups, categories, and install history are stored in a .modmanager.json file inside the Mods folder."
+                       Opacity="0.7"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+
+          <Button Content="View manifest…" Command="{Binding ViewManifestCommand}" HorizontalAlignment="Left" />
+        </StackPanel>
+      </Border>
+
       <TextBlock Text="{Binding StatusMessage}"
                  Opacity="0.8"
                  TextWrapping="Wrap"

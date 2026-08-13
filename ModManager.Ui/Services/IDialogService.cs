@@ -8,6 +8,7 @@ public enum AppDialog
     AddToGroup,
     ThemeEditor,
     SetCategory,
+    ManifestViewer,
 }
 
 public interface IDialogService

@@ -1,0 +1,159 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ModManager.Ui.ViewModels"
+             xmlns:models="using:ModManager.Ui.Models"
+             x:Class="ModManager.Ui.Views.Dialogs.ManifestViewerDialogContent"
+             x:DataType="vm:ManifestViewerViewModel"
+             Width="480">
+  <UserControl.Styles>
+    <Style Selector="ToggleButton.chip">
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="14,5" />
+      <Setter Property="MinWidth" Value="0" />
+    </Style>
+    <Style Selector="Border.section">
+      <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="12" />
+    </Style>
+    <Style Selector="TextBlock.sectionTitle">
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Opacity" Value="0.7" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+  </UserControl.Styles>
+
+  <StackPanel Spacing="10">
+    <StackPanel Spacing="2">
+      <TextBlock Text="{Binding ManifestPath}"
+                 TextWrapping="Wrap"
+                 FontFamily="{DynamicResource ContentControlThemeFontFamily}"
+                 Classes="muted" />
+      <TextBlock Text="No manifest file exists yet for this folder."
+                 Classes="muted"
+                 IsVisible="{Binding !ManifestExists}" />
+    </StackPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <ToggleButton Content="Formatted"
+                    Classes="chip"
+                    Command="{Binding SetTabCommand}"
+                    CommandParameter="{x:Static vm:ManifestViewerTab.Formatted}"
+                    IsChecked="{Binding SelectedTab, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ManifestViewerTab.Formatted}}" />
+      <ToggleButton Content="Raw JSON"
+                    Classes="chip"
+                    Command="{Binding SetTabCommand}"
+                    CommandParameter="{x:Static vm:ManifestViewerTab.Raw}"
+                    IsChecked="{Binding SelectedTab, Mode=OneWay, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ManifestViewerTab.Raw}}" />
+    </StackPanel>
+
+    <ScrollViewer MaxHeight="480"
+                  IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ManifestViewerTab.Formatted}}">
+      <StackPanel Spacing="12">
+
+        <Border Classes="section">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Files" Classes="sectionTitle" />
+            <TextBlock Text="No file entries in the manifest."
+                       Classes="muted"
+                       IsVisible="{Binding !HasFiles}" />
+            <ItemsControl ItemsSource="{Binding Files}" IsVisible="{Binding HasFiles}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:ManifestFileRow">
+                  <StackPanel Spacing="2" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding RelativePath}"
+                               FontFamily="{DynamicResource ContentControlThemeFontFamily}"
+                               TextWrapping="Wrap" />
+                    <WrapPanel>
+                      <TextBlock Text="{Binding DisplayName, StringFormat='Name: {0}'}"
+                                 Classes="muted" Margin="0,0,12,0"
+                                 IsVisible="{Binding DisplayName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                      <TextBlock Text="{Binding GroupName, StringFormat='Group: {0}'}"
+                                 Classes="muted" Margin="0,0,12,0"
+                                 IsVisible="{Binding GroupName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                      <TextBlock Text="{Binding Category, StringFormat='Category: {0}'}"
+                                 Classes="muted" Margin="0,0,12,0"
+                                 IsVisible="{Binding Category, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding Notes}"
+                               Classes="muted"
+                               TextWrapping="Wrap"
+                               IsVisible="{Binding Notes, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="section">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Groups" Classes="sectionTitle" />
+            <TextBlock Text="No groups defined."
+                       Classes="muted"
+                       IsVisible="{Binding !HasGroups}" />
+            <ItemsControl ItemsSource="{Binding Groups}" IsVisible="{Binding HasGroups}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:ManifestGroupRow">
+                  <StackPanel Spacing="2" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding Name}" />
+                    <TextBlock Text="{Binding Members.Count, StringFormat='{}{0} member(s)'}" Classes="muted" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="section">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Installs" Classes="sectionTitle" />
+            <TextBlock Text="No install records."
+                       Classes="muted"
+                       IsVisible="{Binding !HasInstalls}" />
+            <ItemsControl ItemsSource="{Binding Installs}" IsVisible="{Binding HasInstalls}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:ManifestInstallRow">
+                  <StackPanel Spacing="2" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding Provider}" />
+                    <TextBlock Text="{Binding Summary}" Classes="muted" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+      </StackPanel>
+    </ScrollViewer>
+
+    <StackPanel Spacing="8"
+                IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:ManifestViewerTab.Raw}}">
+      <TextBlock Text="Editing this directly can mislabel or lose track of your mods — a category, group, or install record only stays correct if the edited JSON still matches the files in your Mods folder. Saving asks for confirmation first."
+                 Foreground="{DynamicResource SystemFillColorCautionBrush}"
+                 TextWrapping="Wrap"
+                 FontSize="12" />
+
+      <Border Classes="section">
+        <!-- NoWrap so the JSON's own indentation (ModsManifestService writes it WriteIndented=true)
+             stays visually aligned — wrapping a long value mid-line breaks that alignment and reads
+             as a wall of text. A single TextBox-owned scroller (not nested in an outer ScrollViewer)
+             handles both directions. -->
+        <TextBox Text="{Binding RawJson}"
+                 AcceptsReturn="True"
+                 AcceptsTab="True"
+                 TextWrapping="NoWrap"
+                 BorderThickness="0"
+                 Background="Transparent"
+                 FontFamily="{DynamicResource ContentControlThemeFontFamily}"
+                 Height="420"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto" />
+      </Border>
+    </StackPanel>
+  </StackPanel>
+</UserControl>
