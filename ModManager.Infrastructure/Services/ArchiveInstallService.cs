@@ -12,7 +12,10 @@ namespace ModManager.Infrastructure.Services;
 /// mods folder, and records the result in the per-folder manifest. Replaces the WickedWhims-specific
 /// WickedWhimsArchiveInstaller with a general, user-facing pipeline.
 /// </summary>
-public sealed class ArchiveInstallService(ModsManifestService manifestService, ILogger<ArchiveInstallService>? logger = null) : IArchiveInstallService
+public sealed class ArchiveInstallService(
+    ModsManifestService manifestService,
+    ModsFileOperationsService fileOperationsService,
+    ILogger<ArchiveInstallService>? logger = null) : IArchiveInstallService
 {
     private static readonly HashSet<string> ModExtensions = new(StringComparer.OrdinalIgnoreCase) { ".package", ".ts4script" };
     private static readonly Regex VariantFolderPattern = new(@"(^|[\\/])(optional|alternate|extras?)([\\/]|$)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -70,6 +73,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
         string? category,
         InstallSource source,
         string? version,
+        InstallRecord? supersedes = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
@@ -85,10 +89,17 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
         }
 
         Directory.CreateDirectory(layout.ModsFolderPath);
-        string modFolderName = ResolveModFolderName(layout.ModsFolderPath, displayName);
-        string targetRoot = Path.Combine(layout.ModsFolderPath, modFolderName);
+        string installRoot = supersedes is null ? layout.ModsFolderPath : ModsFolderPathService.ResolveInstallRoot(layout, supersedes);
+        Directory.CreateDirectory(installRoot);
 
-        if (!string.Equals(modFolderName, displayName.Trim(), StringComparison.Ordinal))
+        // Superseding writes back into the previous record's own folder — the folder name it derives
+        // from is whatever displayName produced at first install, not this call's displayName, so an
+        // edited name here doesn't fork the mod into a second folder mid-update.
+        string? supersededModFolder = ResolveSupersededModFolder(installRoot, supersedes);
+        string modFolderName = supersededModFolder is not null ? Path.GetFileName(supersededModFolder) : ModsFolderPathService.ResolveDedupedFolderName(displayName, installRoot);
+        string targetRoot = supersededModFolder ?? Path.Combine(installRoot, modFolderName);
+
+        if (supersededModFolder is null && !string.Equals(modFolderName, displayName.Trim(), StringComparison.Ordinal))
         {
             _logger.LogInformation("Installing \"{DisplayName}\" into folder {ModFolderName} (name was sanitized or already taken)", displayName, modFolderName);
         }
@@ -96,7 +107,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
         _logger.LogInformation("Installing {ArchivePath} into {TargetRoot} from {Provider}", archivePath, targetRoot, source.Provider);
 
         string extension = Path.GetExtension(archivePath);
-        ArchiveInstallResult<InstallRecord>? bareFileResult = TryInstallBareFile(archivePath, extension, targetRoot, source, version, cancellationToken);
+        ArchiveInstallResult<InstallRecord>? bareFileResult = TryInstallBareFile(archivePath, extension, targetRoot, installRoot, source, version, cancellationToken);
         if (bareFileResult is not null)
         {
             if (!bareFileResult.Success)
@@ -104,7 +115,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
                 return bareFileResult;
             }
 
-            await PersistRecordAsync(layout, displayName, category, bareFileResult.Value!, cancellationToken);
+            await FinishInstallAsync(layout, installRoot, displayName, category, bareFileResult.Value!, supersedes, cancellationToken);
             return bareFileResult;
         }
 
@@ -118,7 +129,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
         try
         {
             Directory.CreateDirectory(targetRoot);
-            record = ExtractZip(archivePath, selectedEntryNames, targetRoot, layout.ModsFolderPath, source, version);
+            record = ExtractZip(archivePath, selectedEntryNames, targetRoot, installRoot, source, version);
         }
         catch (InvalidDataException ex)
         {
@@ -131,7 +142,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
             return ArchiveInstallResult<InstallRecord>.Fail(ex.Message);
         }
 
-        await PersistRecordAsync(layout, displayName, category, record, cancellationToken);
+        await FinishInstallAsync(layout, installRoot, displayName, category, record, supersedes, cancellationToken);
         _logger.LogInformation(
             "Installed \"{DisplayName}\" as install {InstallId}: {InstalledCount} file(s) into {TargetRoot}, {SkippedCount} skipped",
             displayName,
@@ -147,6 +158,7 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
         string archivePath,
         string extension,
         string targetRoot,
+        string installRoot,
         InstallSource source,
         string? version,
         CancellationToken cancellationToken)
@@ -163,7 +175,11 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
         string targetPath = Path.Combine(targetRoot, fileName);
         File.Copy(archivePath, targetPath, overwrite: true);
 
-        InstallRecordFile installed = new(fileName, FileHashing.ComputeSha256(targetPath), new FileInfo(targetPath).Length);
+        // Relative to installRoot, matching ExtractZip below — not just the bare filename, which
+        // would leave every store keyed on RelativePath (the manifest entry, group membership, this
+        // record itself) unable to match what ModsDiscoveryService reports for the same file.
+        string relativePath = Path.GetRelativePath(installRoot, targetPath).Replace(Path.DirectorySeparatorChar, '/');
+        InstallRecordFile installed = new(relativePath, FileHashing.ComputeSha256(targetPath), new FileInfo(targetPath).Length);
         InstallRecord record = new(
             Guid.NewGuid().ToString("N"),
             source,
@@ -252,15 +268,92 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
             skipped);
     }
 
-    private async Task PersistRecordAsync(ModsFolderLayout layout, string displayName, string? category, InstallRecord record, CancellationToken cancellationToken)
+    /// <summary>
+    /// When superseding, this install's target folder is the previous record's own folder rather than
+    /// a freshly minted one — the first path segment every one of a record's files shares, since a
+    /// zip extracts flat into one target folder and a bare file lands directly in one too. Returns
+    /// <see langword="null"/> for a fresh install or a record with no files to derive a folder from.
+    /// </summary>
+    private static string? ResolveSupersededModFolder(string installRoot, InstallRecord? supersedes)
+    {
+        if (supersedes is null || supersedes.Files.Count == 0)
+        {
+            return null;
+        }
+
+        string firstSegment = supersedes.Files[0].RelativePath.Split('/', 2)[0];
+        return string.IsNullOrWhiteSpace(firstSegment) ? null : Path.Combine(installRoot, firstSegment);
+    }
+
+    /// <summary>
+    /// Prunes files the superseded record wrote that this install doesn't, then persists. Pruning
+    /// happens before the manifest write so a failure here leaves the previous record intact rather
+    /// than pointing at files that were already deleted.
+    /// </summary>
+    private async Task FinishInstallAsync(
+        ModsFolderLayout layout,
+        string installRoot,
+        string displayName,
+        string? category,
+        InstallRecord record,
+        InstallRecord? supersedes,
+        CancellationToken cancellationToken)
+    {
+        if (supersedes is not null)
+        {
+            HashSet<string> newPaths = new(record.Files.Select(file => file.RelativePath), StringComparer.OrdinalIgnoreCase);
+            List<string> stalePaths = [.. supersedes.Files.Select(file => file.RelativePath).Where(path => !newPaths.Contains(path))];
+
+            IReadOnlyList<ModFileFailure> failures = await fileOperationsService.DeleteStalePathsAsync(installRoot, stalePaths, cancellationToken);
+            foreach (ModFileFailure failure in failures)
+            {
+                _logger.LogWarning(
+                    "Could not delete stale file {RelativePath} while superseding install {InstallId}: {Reason}",
+                    failure.RelativePath,
+                    supersedes.InstallId,
+                    failure.Reason);
+            }
+        }
+
+        await PersistRecordAsync(layout, displayName, category, record, supersedes, cancellationToken);
+    }
+
+    /// <summary>
+    /// Writes the record and its file metadata into the manifest. When superseding, the previous
+    /// record is replaced rather than kept alongside the new one, and any <see cref="ManifestFileEntry"/>
+    /// left over from a path the new install doesn't include is dropped rather than orphaned. A path
+    /// that's identical between the old and new record (the common case — an archive's internal
+    /// layout is usually stable release to release) keeps its existing <c>GroupId</c>/<c>Notes</c>
+    /// instead of losing them, which also fixes the same loss for a plain reinstall over unchanged
+    /// paths outside of any supersede.
+    /// </summary>
+    private async Task PersistRecordAsync(ModsFolderLayout layout, string displayName, string? category, InstallRecord record, InstallRecord? supersedes, CancellationToken cancellationToken)
     {
         ModsManifest manifest = await manifestService.LoadAsync(layout, cancellationToken);
 
         HashSet<string> installedPaths = [.. record.Files.Select(file => file.RelativePath)];
-        List<ManifestFileEntry> files = [.. manifest.Files.Where(entry => !installedPaths.Contains(entry.RelativePath))];
-        files.AddRange(record.Files.Select(file => new ManifestFileEntry(file.RelativePath, displayName, Category: category)));
+        HashSet<string> stalePaths = supersedes is null
+            ? []
+            : new HashSet<string>(supersedes.Files.Select(file => file.RelativePath).Where(path => !installedPaths.Contains(path)), StringComparer.OrdinalIgnoreCase);
 
-        ModsManifest updated = manifest with { Files = files, Installs = [.. manifest.Installs, record] };
+        Dictionary<string, ManifestFileEntry> existingByPath = new(StringComparer.OrdinalIgnoreCase);
+        foreach (ManifestFileEntry entry in manifest.Files)
+        {
+            existingByPath[entry.RelativePath] = entry;
+        }
+
+        List<ManifestFileEntry> files = [.. manifest.Files.Where(entry => !installedPaths.Contains(entry.RelativePath) && !stalePaths.Contains(entry.RelativePath))];
+        files.AddRange(record.Files.Select(file =>
+        {
+            existingByPath.TryGetValue(file.RelativePath, out ManifestFileEntry? existing);
+            return new ManifestFileEntry(file.RelativePath, displayName, existing?.GroupId, existing?.Notes, category);
+        }));
+
+        List<InstallRecord> installs = supersedes is null
+            ? [.. manifest.Installs, record]
+            : [.. manifest.Installs.Where(existingRecord => existingRecord.InstallId != supersedes.InstallId), record];
+
+        ModsManifest updated = manifest with { Files = files, Installs = installs };
         await manifestService.SaveAsync(layout, updated, cancellationToken);
     }
 
@@ -321,24 +414,6 @@ public sealed class ArchiveInstallService(ModsManifestService manifestService, I
         string nameOnly = Path.GetFileNameWithoutExtension(fileName);
         int delimiterIndex = nameOnly.IndexOfAny(['_', '-']);
         return delimiterIndex < 0 ? nameOnly : nameOnly[..delimiterIndex];
-    }
-
-    private static string ResolveModFolderName(string modsFolderPath, string displayName)
-    {
-        char[] invalidChars = Path.GetInvalidFileNameChars();
-        string sanitized = new([.. displayName.Trim().Where(c => !invalidChars.Contains(c))]);
-        if (sanitized.Length == 0)
-        {
-            sanitized = "Mod";
-        }
-
-        string candidate = sanitized;
-        for (int suffix = 2; Directory.Exists(Path.Combine(modsFolderPath, candidate)); suffix++)
-        {
-            candidate = $"{sanitized} ({suffix})";
-        }
-
-        return candidate;
     }
 
     private static string NonZipMessage(string extension) =>

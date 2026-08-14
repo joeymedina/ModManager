@@ -408,6 +408,135 @@ public sealed class ModsFolderServiceTests
         Assert.IsFalse(File.Exists(Path.Combine(modsFolderPath, ".modmanager.json")));
     }
 
+    [TestMethod]
+    public async Task RenameInstallFolderAsync_WhenCalled_ThenMovesTheFolderAndRewritesRecordPaths()
+    {
+        var manifestService = new ModsManifestService();
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
+
+        string barePath = Path.Combine(sandboxPath, "loose.package");
+        File.WriteAllText(barePath, "a");
+        ArchiveInstallResult<InstallRecord> install = await archiveService.InstallAsync(
+            barePath, new HashSet<string>(), layout, "SAC_Zombie Apocalypse v2.3.1", category: null, new InstallSource("browser", null, null), version: "2.3.1");
+        Assert.IsTrue(install.Success);
+
+        var service = new ModsFolderService();
+        ArchiveInstallResult<InstallRecord> renamed = await service.RenameInstallFolderAsync(
+            modsFolderPath, install.Value!.InstallId, "Zombie Apocalypse", CancellationToken.None);
+
+        Assert.IsTrue(renamed.Success);
+        Assert.IsFalse(Directory.Exists(Path.Combine(modsFolderPath, "SAC_Zombie Apocalypse v2.3.1")));
+        Assert.IsTrue(File.Exists(Path.Combine(modsFolderPath, "Zombie Apocalypse", "loose.package")));
+        Assert.AreEqual("Zombie Apocalypse/loose.package", renamed.Value!.Files.Single().RelativePath);
+    }
+
+    [TestMethod]
+    public async Task RenameInstallFolderAsync_WhenCalled_ThenRewritesManifestEntryAndGroupMembership()
+    {
+        var manifestService = new ModsManifestService();
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
+
+        string barePath = Path.Combine(sandboxPath, "loose.package");
+        File.WriteAllText(barePath, "a");
+        ArchiveInstallResult<InstallRecord> install = await archiveService.InstallAsync(
+            barePath, new HashSet<string>(), layout, "SAC_Zombie Apocalypse v2.3.1", category: "Gameplay", new InstallSource("browser", null, null), version: "2.3.1");
+
+        var service = new ModsFolderService();
+        await service.AddToGroupAsync(modsFolderPath, ["SAC_Zombie Apocalypse v2.3.1/loose.package"], "Zombie Stuff", CancellationToken.None);
+
+        await service.RenameInstallFolderAsync(modsFolderPath, install.Value!.InstallId, "Zombie Apocalypse", CancellationToken.None);
+
+        ModsManifest manifest = await manifestService.LoadAsync(layout, CancellationToken.None);
+        ManifestFileEntry entry = manifest.Files.Single();
+        Assert.AreEqual("Zombie Apocalypse/loose.package", entry.RelativePath);
+        Assert.AreEqual("Gameplay", entry.Category);
+
+        ModGroup group = manifest.Groups.Single();
+        Assert.Contains("Zombie Apocalypse/loose.package", group.Members);
+    }
+
+    [TestMethod]
+    public async Task RenameInstallFolderAsync_WhenDesiredNameIsTaken_ThenAppendsANumericSuffixInsteadOfFailing()
+    {
+        Directory.CreateDirectory(Path.Combine(modsFolderPath, "Zombie Apocalypse"));
+
+        var manifestService = new ModsManifestService();
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
+
+        string barePath = Path.Combine(sandboxPath, "loose.package");
+        File.WriteAllText(barePath, "a");
+        ArchiveInstallResult<InstallRecord> install = await archiveService.InstallAsync(
+            barePath, new HashSet<string>(), layout, "SAC_Zombie Apocalypse v2.3.1", category: null, new InstallSource("browser", null, null), version: "2.3.1");
+
+        var service = new ModsFolderService();
+        ArchiveInstallResult<InstallRecord> renamed = await service.RenameInstallFolderAsync(
+            modsFolderPath, install.Value!.InstallId, "Zombie Apocalypse", CancellationToken.None);
+
+        Assert.IsTrue(renamed.Success);
+        Assert.IsTrue(Directory.Exists(Path.Combine(modsFolderPath, "Zombie Apocalypse (2)")));
+        Assert.AreEqual("Zombie Apocalypse (2)/loose.package", renamed.Value!.Files.Single().RelativePath);
+    }
+
+    [TestMethod]
+    public async Task RenameInstallFolderAsync_WhenNoInstallMatchesTheId_ThenFails()
+    {
+        var service = new ModsFolderService();
+
+        ArchiveInstallResult<InstallRecord> result = await service.RenameInstallFolderAsync(
+            modsFolderPath, "does-not-exist", "New Name", CancellationToken.None);
+
+        Assert.IsFalse(result.Success);
+    }
+
+    [TestMethod]
+    public async Task RenameInstallFolderAsync_WhenAlreadyNamedAsRequested_ThenIsANoOp()
+    {
+        var manifestService = new ModsManifestService();
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
+
+        string barePath = Path.Combine(sandboxPath, "loose.package");
+        File.WriteAllText(barePath, "a");
+        ArchiveInstallResult<InstallRecord> install = await archiveService.InstallAsync(
+            barePath, new HashSet<string>(), layout, "Zombie Apocalypse", category: null, new InstallSource("browser", null, null), version: "2.3.1");
+
+        var service = new ModsFolderService();
+        ArchiveInstallResult<InstallRecord> renamed = await service.RenameInstallFolderAsync(
+            modsFolderPath, install.Value!.InstallId, "Zombie Apocalypse", CancellationToken.None);
+
+        Assert.IsTrue(renamed.Success);
+        Assert.IsTrue(File.Exists(Path.Combine(modsFolderPath, "Zombie Apocalypse", "loose.package")));
+    }
+
+    [TestMethod]
+    public async Task RenameInstallFolderAsync_WhenModIsDisabled_ThenRenamesUnderTheDisabledRoot()
+    {
+        var manifestService = new ModsManifestService();
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
+
+        string barePath = Path.Combine(sandboxPath, "loose.package");
+        File.WriteAllText(barePath, "a");
+        ArchiveInstallResult<InstallRecord> install = await archiveService.InstallAsync(
+            barePath, new HashSet<string>(), layout, "SAC_Zombie Apocalypse v2.3.1", category: null, new InstallSource("browser", null, null), version: "2.3.1");
+
+        Directory.CreateDirectory(disabledFolderPath);
+        Directory.Move(
+            Path.Combine(modsFolderPath, "SAC_Zombie Apocalypse v2.3.1"),
+            Path.Combine(disabledFolderPath, "SAC_Zombie Apocalypse v2.3.1"));
+
+        var service = new ModsFolderService();
+        ArchiveInstallResult<InstallRecord> renamed = await service.RenameInstallFolderAsync(
+            modsFolderPath, install.Value!.InstallId, "Zombie Apocalypse", CancellationToken.None);
+
+        Assert.IsTrue(renamed.Success);
+        Assert.IsTrue(File.Exists(Path.Combine(disabledFolderPath, "Zombie Apocalypse", "loose.package")));
+        Assert.IsFalse(Directory.Exists(Path.Combine(modsFolderPath, "Zombie Apocalypse")));
+    }
+
     private static void CreateFile(string root, string relativePath)
     {
         string fullPath = Path.Combine(root, relativePath);

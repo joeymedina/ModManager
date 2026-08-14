@@ -1131,6 +1131,13 @@ public partial class ModsPageViewModel : ViewModelBase
 
         public Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string modsFolderPath, string rawJson, CancellationToken cancellationToken = default)
             => Task.FromResult(ArchiveInstallResult<ModsManifest>.Fail("Not available at design time."));
+
+        public Task<ArchiveInstallResult<InstallRecord>> RenameInstallFolderAsync(
+            string modsFolderPath,
+            string installId,
+            string desiredFolderName,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ArchiveInstallResult<InstallRecord>.Fail("Not available at design time."));
     }
 
     private sealed class DesignTimeArchiveInstallService : IArchiveInstallService
@@ -1146,6 +1153,7 @@ public partial class ModsPageViewModel : ViewModelBase
             string? category,
             InstallSource source,
             string? version,
+            InstallRecord? supersedes = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ArchiveInstallResult<InstallRecord>.Fail("Not available at design time."));
     }

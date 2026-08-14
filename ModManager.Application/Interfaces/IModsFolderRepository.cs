@@ -94,4 +94,20 @@ public interface IModsFolderRepository
     /// parse or uses an unsupported schema version.
     /// </summary>
     Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string modsFolderPath, string rawJson, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Renames an install's on-disk folder and rewrites every stored reference to its old path — the
+    /// record's own files, matching manifest file entries, and group membership — as one operation.
+    /// Existing on disk under both the enabled and disabled root (an install's files live under
+    /// exactly one, but a name collision is checked against both so the new name can't collide with
+    /// an unrelated mod in the other) is moved; if the desired name is already taken, a numeric
+    /// suffix is appended rather than failing. If the manifest write fails after the folder move
+    /// succeeds, the move is rolled back so disk and manifest never disagree about where the mod
+    /// lives.
+    /// </summary>
+    Task<ArchiveInstallResult<InstallRecord>> RenameInstallFolderAsync(
+        string modsFolderPath,
+        string installId,
+        string desiredFolderName,
+        CancellationToken cancellationToken = default);
 }

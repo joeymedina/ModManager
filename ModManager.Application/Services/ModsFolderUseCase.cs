@@ -149,4 +149,19 @@ public sealed class ModsFolderUseCase(IModsFolderRepository repository) : IModsF
         ArgumentNullException.ThrowIfNull(rawJson);
         return repository.SaveManifestRawAsync(modsFolderPath, rawJson, cancellationToken);
     }
+
+    /// <summary>
+    /// Renames an install's on-disk folder and rewrites every stored reference to its old path.
+    /// </summary>
+    public Task<ArchiveInstallResult<InstallRecord>> RenameInstallFolderAsync(
+        string modsFolderPath,
+        string installId,
+        string desiredFolderName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(installId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(desiredFolderName);
+        return repository.RenameInstallFolderAsync(modsFolderPath, installId, desiredFolderName, cancellationToken);
+    }
 }

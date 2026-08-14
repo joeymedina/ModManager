@@ -94,4 +94,13 @@ public interface IModsFolderUseCase
     /// parse or uses an unsupported schema version.
     /// </summary>
     Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string modsFolderPath, string rawJson, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Renames an install's on-disk folder and rewrites every stored reference to its old path.
+    /// </summary>
+    Task<ArchiveInstallResult<InstallRecord>> RenameInstallFolderAsync(
+        string modsFolderPath,
+        string installId,
+        string desiredFolderName,
+        CancellationToken cancellationToken = default);
 }

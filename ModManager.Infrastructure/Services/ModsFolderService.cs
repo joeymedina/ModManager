@@ -463,6 +463,114 @@ public sealed class ModsFolderService : IModsFolderRepository
     }
 
     /// <summary>
+    /// Renames an install's on-disk folder and rewrites every stored reference to its old path — the
+    /// record's own files, matching manifest file entries, and group membership — as one operation.
+    /// See <see cref="IModsFolderRepository.RenameInstallFolderAsync"/> for the collision and
+    /// rollback behavior.
+    /// </summary>
+    public async Task<ArchiveInstallResult<InstallRecord>> RenameInstallFolderAsync(
+        string modsFolderPath,
+        string installId,
+        string desiredFolderName,
+        CancellationToken cancellationToken = default)
+    {
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+
+        InstallRecord? record = manifest.Installs.FirstOrDefault(candidate => candidate.InstallId == installId);
+        if (record is null || record.Files.Count == 0)
+        {
+            _logger.LogWarning("Rename abandoned: no install {InstallId} with files found in {ModsFolder}", installId, modsFolderPath);
+            return ArchiveInstallResult<InstallRecord>.Fail("Could not find that install.");
+        }
+
+        string oldFolderName = record.Files[0].RelativePath.Split('/', 2)[0];
+
+        // Checked before deduping: the mod's own current folder is not a "collision" to dedupe
+        // against, since a rename to the name it already has is a no-op, not a move onto itself.
+        if (string.Equals(oldFolderName, ModsFolderPathService.SanitizeFolderName(desiredFolderName), StringComparison.Ordinal))
+        {
+            return ArchiveInstallResult<InstallRecord>.Ok(record);
+        }
+
+        string newFolderName = ModsFolderPathService.ResolveDedupedFolderName(desiredFolderName, layout.ModsFolderPath, layout.DisabledModsFolderPath);
+
+        // A record's files live under exactly one root, but check both — a mixed-state mod (some
+        // files individually disabled) can have the same folder present under both.
+        List<(string Root, string OldPath, string NewPath)> moves = [.. new[] { layout.ModsFolderPath, layout.DisabledModsFolderPath }
+            .Where(root => Directory.Exists(Path.Combine(root, oldFolderName)))
+            .Select(root => (root, Path.Combine(root, oldFolderName), Path.Combine(root, newFolderName)))];
+
+        if (moves.Count == 0)
+        {
+            _logger.LogWarning("Rename abandoned: install {InstallId}'s folder \"{OldFolderName}\" was not found under either root", installId, oldFolderName);
+            return ArchiveInstallResult<InstallRecord>.Fail("Could not find the mod's folder on disk.");
+        }
+
+        List<(string Root, string OldPath, string NewPath)> moved = [];
+        try
+        {
+            foreach ((string root, string oldPath, string newPath) in moves)
+            {
+                Directory.Move(oldPath, newPath);
+                moved.Add((root, oldPath, newPath));
+            }
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "Failed to rename install {InstallId}'s folder from \"{OldFolderName}\" to \"{NewFolderName}\"", installId, oldFolderName, newFolderName);
+            RollBackFolderMoves(moved);
+            return ArchiveInstallResult<InstallRecord>.Fail(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Access denied renaming install {InstallId}'s folder from \"{OldFolderName}\" to \"{NewFolderName}\"", installId, oldFolderName, newFolderName);
+            RollBackFolderMoves(moved);
+            return ArchiveInstallResult<InstallRecord>.Fail(ex.Message);
+        }
+
+        string oldPrefix = oldFolderName + "/";
+        string newPrefix = newFolderName + "/";
+
+        InstallRecord renamedRecord = record with { Files = [.. record.Files.Select(file => file with { RelativePath = RewritePrefix(file.RelativePath, oldPrefix, newPrefix) })] };
+        List<InstallRecord> installs = [.. manifest.Installs.Where(candidate => candidate.InstallId != installId), renamedRecord];
+        List<ManifestFileEntry> files = [.. manifest.Files.Select(entry => entry with { RelativePath = RewritePrefix(entry.RelativePath, oldPrefix, newPrefix) })];
+        List<ModGroup> groups = [.. manifest.Groups.Select(group => group with { Members = [.. group.Members.Select(member => RewritePrefix(member, oldPrefix, newPrefix))] })];
+
+        try
+        {
+            await _manifestService.SaveAsync(layout, manifest with { Files = files, Groups = groups, Installs = installs }, cancellationToken);
+        }
+        catch
+        {
+            // Disk and manifest must never disagree about where a mod lives — a save failure here
+            // would otherwise orphan every path the manifest still references under the old name.
+            RollBackFolderMoves(moved);
+            throw;
+        }
+
+        _logger.LogInformation("Renamed install {InstallId}'s folder from \"{OldFolderName}\" to \"{NewFolderName}\"", installId, oldFolderName, newFolderName);
+        return ArchiveInstallResult<InstallRecord>.Ok(renamedRecord);
+    }
+
+    private static string RewritePrefix(string relativePath, string oldPrefix, string newPrefix) =>
+        relativePath.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase)
+            ? newPrefix + relativePath[oldPrefix.Length..]
+            : relativePath;
+
+    private void RollBackFolderMoves(List<(string Root, string OldPath, string NewPath)> moved)
+    {
+        foreach ((string root, string oldPath, string newPath) in moved)
+        {
+            if (Directory.Exists(newPath) && !Directory.Exists(oldPath))
+            {
+                Directory.Move(newPath, oldPath);
+                _logger.LogInformation("Rolled back folder rename in {Root}: {NewPath} -> {OldPath}", root, newPath, oldPath);
+            }
+        }
+    }
+
+    /// <summary>
     /// Resolves requested relative paths against what discovery actually found. Every caller routes
     /// through here, so this is the one place a "file not found" needs logging.
     /// </summary>

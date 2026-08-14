@@ -10,6 +10,7 @@ namespace ModManager.Infrastructure.Services.WickedWhims;
 internal sealed class WickedWhimsUpdateStrategy(
     ModsFolderPathService pathService,
     ModsManifestService manifestService,
+    ModsFileOperationsService fileOperationsService,
     WickedWhimsVersionDetector versionDetector,
     WickedWhimsReleaseClient releaseClient,
     ILogger<WickedWhimsUpdateStrategy>? logger = null) : IModUpdateStrategy
@@ -34,7 +35,7 @@ internal sealed class WickedWhimsUpdateStrategy(
         ModsFolderLayout layout = pathService.GetLayout(request.ModsFolder);
         ModsManifest manifest = await manifestService.LoadAsync(layout, cancellationToken);
         InstallRecord? previousRecord = FindPreviousRecord(manifest);
-        string installRoot = ResolveInstallRoot(layout, previousRecord);
+        string installRoot = ModsFolderPathService.ResolveInstallRoot(layout, previousRecord);
 
         InstalledModVersion installedVersion = versionDetector.FindInstalledVersion(
             installRoot,
@@ -63,7 +64,7 @@ internal sealed class WickedWhimsUpdateStrategy(
             IReadOnlyList<InstallRecordFile> newFiles = ExtractArchive(installRoot, download.Bytes);
             _logger.LogInformation("Extracted {FileCount} WickedWhims v{Version} file(s) into {InstallRoot}", newFiles.Count, latestRelease.Version, installRoot);
 
-            DeleteStaleFiles(installRoot, previousRecord, newFiles);
+            await DeleteStaleFilesAsync(installRoot, previousRecord, newFiles, cancellationToken);
 
             InstallRecord newRecord = new(
                 Guid.NewGuid().ToString("N"),
@@ -95,53 +96,26 @@ internal sealed class WickedWhimsUpdateStrategy(
             .OrderByDescending(record => record.InstalledUtc)
             .FirstOrDefault();
 
-    private static string ResolveInstallRoot(ModsFolderLayout layout, InstallRecord? previousRecord)
-    {
-        if (previousRecord is null || previousRecord.Files.Count == 0)
-        {
-            return layout.ModsFolderPath;
-        }
-
-        string sampleRelativePath = previousRecord.Files[0].RelativePath;
-        bool livesInDisabledRoot = File.Exists(Path.Combine(layout.DisabledModsFolderPath, sampleRelativePath))
-            && !File.Exists(Path.Combine(layout.ModsFolderPath, sampleRelativePath));
-
-        return livesInDisabledRoot ? layout.DisabledModsFolderPath : layout.ModsFolderPath;
-    }
-
-    private void DeleteStaleFiles(string installRoot, InstallRecord? previousRecord, IReadOnlyList<InstallRecordFile> newFiles)
+    /// <summary>
+    /// Deletes any file the previous install wrote that the new one didn't, via the shared
+    /// <see cref="ModsFileOperationsService.DeleteStalePathsAsync"/> — path containment, skip-on-escape,
+    /// and empty-directory cleanup all live there now so a future site-based update strategy gets the
+    /// same safety without reimplementing it.
+    /// </summary>
+    private async Task DeleteStaleFilesAsync(string installRoot, InstallRecord? previousRecord, IReadOnlyList<InstallRecordFile> newFiles, CancellationToken cancellationToken)
     {
         if (previousRecord is null)
         {
             return;
         }
 
-        // The manifest is user-editable (adopted files, or a manually edited raw manifest via the
-        // Settings-page viewer), so a record's RelativePath isn't guaranteed to stay under
-        // installRoot the way ExtractArchive's zip-slip guard ensures for freshly extracted files.
-        // Same containment check as ExtractArchive below, but skip-and-log instead of aborting the
-        // whole update over one bad entry.
-        string root = Path.GetFullPath(installRoot) + Path.DirectorySeparatorChar;
         HashSet<string> newPaths = new(newFiles.Select(file => file.RelativePath), StringComparer.OrdinalIgnoreCase);
-        foreach (InstallRecordFile staleFile in previousRecord.Files.Where(file => !newPaths.Contains(file.RelativePath)))
-        {
-            string stalePath = Path.GetFullPath(Path.Combine(installRoot, staleFile.RelativePath));
-            if (!stalePath.StartsWith(root, StringComparison.Ordinal))
-            {
-                _logger.LogWarning(
-                    "Skipped deleting a stale WickedWhims file entry escaping {InstallRoot}: {RelativePath}",
-                    installRoot,
-                    staleFile.RelativePath);
-                continue;
-            }
+        List<string> stalePaths = [.. previousRecord.Files.Select(file => file.RelativePath).Where(path => !newPaths.Contains(path))];
 
-            if (File.Exists(stalePath))
-            {
-                // Inferred from the previous install record, not chosen by the user — log every path so
-                // a wrong record is traceable after the fact.
-                File.Delete(stalePath);
-                _logger.LogInformation("Deleted stale WickedWhims file from install {InstallId}: {DeletedPath}", previousRecord.InstallId, stalePath);
-            }
+        IReadOnlyList<ModFileFailure> failures = await fileOperationsService.DeleteStalePathsAsync(installRoot, stalePaths, cancellationToken);
+        foreach (ModFileFailure failure in failures)
+        {
+            _logger.LogWarning("Could not delete stale WickedWhims file {RelativePath} from install {InstallId}: {Reason}", failure.RelativePath, previousRecord.InstallId, failure.Reason);
         }
     }
 
