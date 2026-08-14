@@ -25,6 +25,8 @@ public static class InfrastructureServiceRegistrations
         services.AddSingleton<IModsFolderRepository, ModsFolderService>();
         services.AddSingleton<IArchiveInstallService, ArchiveInstallService>();
 
+        services.AddSingleton<IUpdateCheckStateStore, UpdateCheckStateStore>();
+
         return services;
     }
 }
