@@ -1,5 +1,7 @@
+using ModManager.Application.Interfaces;
 using ModManager.Application.Models;
 using ModManager.Infrastructure.Services;
+using ModManager.Tests.Application.Services;
 
 namespace ModManager.Tests.Infrastructure.Services;
 
@@ -157,6 +159,132 @@ public sealed class ModsFolderServiceTests
 
         IReadOnlyList<ModFile> files = await service.LoadFilesAsync(modsFolderPath, CancellationToken.None);
         Assert.IsNull(files.Single().DisplayName);
+    }
+
+    [TestMethod]
+    public async Task AdoptAsync_WhenModPageUrlHostMatchesARegisteredStrategy_ThenSetsTracking()
+    {
+        CreateFile(modsFolderPath, "Loose.package");
+        var strategy = new StubModSiteStrategy(
+            "sacrificialmods.com",
+            [],
+            resolveModKey: hints => new SiteModKey("ZombieApocalypseDownload"));
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), new ModsManifestService(), [strategy]);
+
+        ArchiveInstallResult<InstallRecord> result = await service.AdoptAsync(
+            modsFolderPath, ["Loose.package"], "Zombie Apocalypse", "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", "2.3.1", CancellationToken.None);
+
+        Assert.IsTrue(result.Success);
+        UpdateTracking? tracking = result.Value!.Tracking;
+        Assert.IsNotNull(tracking);
+        Assert.AreEqual("sacrificialmods.com", tracking.SiteKey);
+        Assert.AreEqual("ZombieApocalypseDownload", tracking.SiteModKey);
+        Assert.AreEqual("https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", tracking.TrackingUrl);
+        Assert.AreEqual("2.3.1", tracking.BaselineVersion);
+    }
+
+    [TestMethod]
+    public async Task AdoptAsync_WhenTheStrategyCannotResolveAModKey_ThenTrackingIsStillSetButUnresolved()
+    {
+        CreateFile(modsFolderPath, "Loose.package");
+        var strategy = new StubModSiteStrategy("sacrificialmods.com", [], resolveModKey: _ => null);
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), new ModsManifestService(), [strategy]);
+
+        ArchiveInstallResult<InstallRecord> result = await service.AdoptAsync(
+            modsFolderPath, ["Loose.package"], "Zombie Apocalypse", "https://sacrificialmods.com/downloads.html", null, CancellationToken.None);
+
+        Assert.IsNotNull(result.Value!.Tracking);
+        Assert.AreEqual("sacrificialmods.com", result.Value.Tracking!.SiteKey);
+        Assert.IsNull(result.Value.Tracking.SiteModKey);
+    }
+
+    [TestMethod]
+    public async Task AdoptAsync_WhenModPageUrlHostMatchesNoRegisteredStrategy_ThenLeavesTrackingNull()
+    {
+        CreateFile(modsFolderPath, "Loose.package");
+        var strategy = new StubModSiteStrategy("sacrificialmods.com", []);
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), new ModsManifestService(), [strategy]);
+
+        ArchiveInstallResult<InstallRecord> result = await service.AdoptAsync(
+            modsFolderPath, ["Loose.package"], "Some Other Mod", "https://example.com/mod", null, CancellationToken.None);
+
+        Assert.IsNull(result.Value!.Tracking);
+    }
+
+    [TestMethod]
+    public async Task AdoptAsync_WhenNoModPageUrlIsGiven_ThenLeavesTrackingNull()
+    {
+        CreateFile(modsFolderPath, "Loose.package");
+        var service = new ModsFolderService();
+
+        ArchiveInstallResult<InstallRecord> result = await service.AdoptAsync(
+            modsFolderPath, ["Loose.package"], "Some Mod", null, null, CancellationToken.None);
+
+        Assert.IsNull(result.Value!.Tracking);
+    }
+
+    [TestMethod]
+    public async Task AdoptAsync_WhenReAdoptingTheSamePaths_ThenReplacesThePreviousRecordRatherThanDuplicatingIt()
+    {
+        CreateFile(modsFolderPath, "Loose.package");
+        var manifestService = new ModsManifestService();
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), manifestService);
+
+        ArchiveInstallResult<InstallRecord> first = await service.AdoptAsync(
+            modsFolderPath, ["Loose.package"], "My Mod", "https://example.com/wrong-page", "1.0", CancellationToken.None);
+        ArchiveInstallResult<InstallRecord> second = await service.AdoptAsync(
+            modsFolderPath, ["Loose.package"], "My Mod", "https://example.com/correct-page", "1.1", CancellationToken.None);
+
+        Assert.IsTrue(second.Success);
+        var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
+        ModsManifest manifest = await manifestService.LoadAsync(layout, CancellationToken.None);
+
+        Assert.HasCount(1, manifest.Installs);
+        Assert.AreEqual(second.Value!.InstallId, manifest.Installs.Single().InstallId);
+        Assert.AreEqual("https://example.com/correct-page", manifest.Installs.Single().Source.ModPageUrl);
+        Assert.AreNotEqual(first.Value!.InstallId, manifest.Installs.Single().InstallId);
+    }
+
+    [TestMethod]
+    public async Task AdoptAsync_WhenAFileAlreadyHasACategoryOrGroup_ThenPreservesThemAcrossAdopt()
+    {
+        CreateFile(modsFolderPath, "Loose.package");
+        var manifestService = new ModsManifestService();
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), manifestService);
+
+        await service.SetCategoryAsync(modsFolderPath, ["Loose.package"], "Gameplay", CancellationToken.None);
+        await service.AddToGroupAsync(modsFolderPath, ["Loose.package"], "My Group", CancellationToken.None);
+
+        await service.AdoptAsync(modsFolderPath, ["Loose.package"], "My Mod", null, null, CancellationToken.None);
+
+        var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
+        ModsManifest manifest = await manifestService.LoadAsync(layout, CancellationToken.None);
+        ManifestFileEntry entry = manifest.Files.Single();
+
+        Assert.AreEqual("Gameplay", entry.Category);
+        Assert.IsNotNull(entry.GroupId);
+        Assert.AreEqual("My Mod", entry.DisplayName);
+    }
+
+    [TestMethod]
+    public async Task AdoptAsync_WhenReAdoptingASubsetOfAPreviousRecordsPaths_ThenOnlyRemovesTheOverlappingRecord()
+    {
+        CreateFile(modsFolderPath, "A.package");
+        CreateFile(modsFolderPath, "B.package");
+        var manifestService = new ModsManifestService();
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), manifestService);
+
+        await service.AdoptAsync(modsFolderPath, ["A.package", "B.package"], "Combined Mod", null, "1.0", CancellationToken.None);
+        await service.AdoptAsync(modsFolderPath, ["A.package"], "Just A", null, "1.1", CancellationToken.None);
+
+        var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
+        ModsManifest manifest = await manifestService.LoadAsync(layout, CancellationToken.None);
+
+        Assert.HasCount(1, manifest.Installs);
+        Assert.AreEqual("A.package", manifest.Installs.Single().Files.Single().RelativePath);
+        // B.package's own metadata (display name) survives even though its install record is gone —
+        // adopting A doesn't touch entries for paths it didn't ask for.
+        Assert.AreEqual("Combined Mod", manifest.Files.Single(f => f.RelativePath == "B.package").DisplayName);
     }
 
     [TestMethod]
@@ -535,6 +663,65 @@ public sealed class ModsFolderServiceTests
         Assert.IsTrue(renamed.Success);
         Assert.IsTrue(File.Exists(Path.Combine(disabledFolderPath, "Zombie Apocalypse", "loose.package")));
         Assert.IsFalse(Directory.Exists(Path.Combine(modsFolderPath, "Zombie Apocalypse")));
+    }
+
+    [TestMethod]
+    public async Task UpdateInstallTrackingAsync_WhenInstallExists_ThenReplacesItsTracking()
+    {
+        var manifestService = new ModsManifestService();
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
+
+        string barePath = Path.Combine(sandboxPath, "loose.package");
+        File.WriteAllText(barePath, "a");
+        ArchiveInstallResult<InstallRecord> install = await archiveService.InstallAsync(
+            barePath, new HashSet<string>(), layout, "Zombie Apocalypse", category: null, new InstallSource("browser", null, null), version: null);
+
+        var service = new ModsFolderService();
+        UpdateTracking tracking = new("sacrificialmods.com", "ZombieApocalypseDownload", "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", "2.3.1", "09-7-2025", DateTime.UtcNow);
+
+        ArchiveInstallResult<InstallRecord> result = await service.UpdateInstallTrackingAsync(modsFolderPath, install.Value!.InstallId, tracking, CancellationToken.None);
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(tracking, result.Value!.Tracking);
+
+        ModsManifest manifest = await manifestService.LoadAsync(layout, CancellationToken.None);
+        Assert.AreEqual(tracking, manifest.Installs.Single().Tracking);
+    }
+
+    [TestMethod]
+    public async Task UpdateInstallTrackingAsync_WhenCalledTwice_ThenSecondCallReplacesTheFirstRatherThanDuplicatingTheRecord()
+    {
+        var manifestService = new ModsManifestService();
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
+
+        string barePath = Path.Combine(sandboxPath, "loose.package");
+        File.WriteAllText(barePath, "a");
+        ArchiveInstallResult<InstallRecord> install = await archiveService.InstallAsync(
+            barePath, new HashSet<string>(), layout, "Zombie Apocalypse", category: null, new InstallSource("browser", null, null), version: null);
+
+        var service = new ModsFolderService();
+        UpdateTracking first = new("sacrificialmods.com", "ZombieApocalypseDownload", "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", "2.3.1", null, DateTime.UtcNow);
+        UpdateTracking second = first with { BaselineVersion = "2.3.2" };
+
+        await service.UpdateInstallTrackingAsync(modsFolderPath, install.Value!.InstallId, first, CancellationToken.None);
+        await service.UpdateInstallTrackingAsync(modsFolderPath, install.Value!.InstallId, second, CancellationToken.None);
+
+        ModsManifest manifest = await manifestService.LoadAsync(layout, CancellationToken.None);
+        Assert.HasCount(1, manifest.Installs);
+        Assert.AreEqual("2.3.2", manifest.Installs.Single().Tracking!.BaselineVersion);
+    }
+
+    [TestMethod]
+    public async Task UpdateInstallTrackingAsync_WhenNoInstallMatchesTheId_ThenFails()
+    {
+        var service = new ModsFolderService();
+        UpdateTracking tracking = new("sacrificialmods.com", "key", "https://sacrificialmods.com/downloads.html#key", null, null, DateTime.UtcNow);
+
+        ArchiveInstallResult<InstallRecord> result = await service.UpdateInstallTrackingAsync(modsFolderPath, "does-not-exist", tracking, CancellationToken.None);
+
+        Assert.IsFalse(result.Success);
     }
 
     private static void CreateFile(string root, string relativePath)

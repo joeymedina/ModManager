@@ -14,6 +14,7 @@ public sealed class ModsFolderService : IModsFolderRepository
     private readonly ModsDiscoveryService _discoveryService;
     private readonly ModsFileOperationsService _fileOperationsService;
     private readonly ModsManifestService _manifestService;
+    private readonly IReadOnlyList<IModSiteStrategy> _siteStrategies;
     private readonly ILogger<ModsFolderService> _logger;
 
     public ModsFolderService():
@@ -21,7 +22,8 @@ public sealed class ModsFolderService : IModsFolderRepository
             new ModsFolderPathService(),
             new ModsDiscoveryService(),
             new ModsFileOperationsService(new ModsFolderPathService()),
-            new ModsManifestService())
+            new ModsManifestService(),
+            [])
     {
     }
 
@@ -30,12 +32,14 @@ public sealed class ModsFolderService : IModsFolderRepository
         ModsDiscoveryService discoveryService,
         ModsFileOperationsService fileOperationsService,
         ModsManifestService manifestService,
+        IEnumerable<IModSiteStrategy>? siteStrategies = null,
         ILogger<ModsFolderService>? logger = null)
     {
         _pathService = pathService;
         _discoveryService = discoveryService;
         _fileOperationsService = fileOperationsService;
         _manifestService = manifestService;
+        _siteStrategies = [.. siteStrategies ?? []];
         _logger = logger ?? NullLogger<ModsFolderService>.Instance;
     }
 
@@ -226,15 +230,48 @@ public sealed class ModsFolderService : IModsFolderRepository
             DateTime.UtcNow,
             null,
             files,
-            []);
+            [],
+            ResolveTracking(modPageUrl, version, displayName, files));
 
         ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
         HashSet<string> adoptedPaths = [.. files.Select(file => file.RelativePath)];
-        List<ManifestFileEntry> manifestFiles = [.. manifest.Files.Where(entry => !adoptedPaths.Contains(entry.RelativePath))];
-        manifestFiles.AddRange(files.Select(file => new ManifestFileEntry(file.RelativePath, displayName)));
 
-        ModsManifest updated = manifest with { Files = manifestFiles, Installs = [.. manifest.Installs, record] };
+        // Re-adopting the same file(s) is how a mistake (wrong URL, wrong version) gets corrected, so
+        // any existing record sharing a path with this adoption is replaced rather than left behind as
+        // a stale duplicate — the same append-only bug this fixed for ArchiveInstallService.InstallAsync
+        // via its `supersedes` parameter. "Any shared path" rather than an exact-set match also means
+        // this self-heals a manifest that already has duplicates from before this fix existed.
+        HashSet<string> supersededInstallIds = [.. manifest.Installs
+            .Where(existing => existing.Files.Any(file => adoptedPaths.Contains(file.RelativePath)))
+            .Select(existing => existing.InstallId)];
+
+        Dictionary<string, ManifestFileEntry> existingByPath = new(StringComparer.OrdinalIgnoreCase);
+        foreach (ManifestFileEntry entry in manifest.Files)
+        {
+            existingByPath[entry.RelativePath] = entry;
+        }
+
+        List<ManifestFileEntry> manifestFiles = [.. manifest.Files.Where(entry => !adoptedPaths.Contains(entry.RelativePath))];
+        manifestFiles.AddRange(files.Select(file =>
+        {
+            // Carries forward GroupId/Category/Notes a file already had — from before it was ever
+            // adopted, or from a previous adopt — rather than silently wiping them, the same fix
+            // ArchiveInstallService.PersistRecordAsync got for the same latent bug.
+            existingByPath.TryGetValue(file.RelativePath, out ManifestFileEntry? existing);
+            return new ManifestFileEntry(file.RelativePath, displayName, existing?.GroupId, existing?.Notes, existing?.Category);
+        }));
+
+        List<InstallRecord> installs = [.. manifest.Installs.Where(existing => !supersededInstallIds.Contains(existing.InstallId)), record];
+        ModsManifest updated = manifest with { Files = manifestFiles, Installs = installs };
         await _manifestService.SaveAsync(layout, updated, cancellationToken);
+
+        if (supersededInstallIds.Count > 0)
+        {
+            _logger.LogInformation(
+                "Adopt of \"{DisplayName}\" superseded {Count} previous install record(s) covering the same path(s)",
+                displayName,
+                supersededInstallIds.Count);
+        }
 
         _logger.LogInformation(
             "Adopted {FileCount} file(s) as \"{DisplayName}\" (install {InstallId}, version {Version})",
@@ -244,6 +281,36 @@ public sealed class ModsFolderService : IModsFolderRepository
             version ?? "unspecified");
 
         return ArchiveInstallResult<InstallRecord>.Ok(record);
+    }
+
+    /// <summary>
+    /// Builds the update-tracking baseline for a freshly adopted record. Adoption's existing "mod
+    /// page" field doubles as the tracking URL — no separate "link to a site" action is needed. Only
+    /// set when a registered strategy's <see cref="IModSiteStrategy.Hosts"/> actually matches the URL:
+    /// a user can paste a mod page from any site during adoption, most of which this app has no
+    /// strategy for, and tracking one anyway would leave a permanently-`Indeterminate` "no strategy
+    /// registered" row cluttering the Updates page for a site that was never checkable to begin with.
+    /// The matched strategy's canonical <see cref="IModSiteStrategy.SiteKey"/> is used (so
+    /// <c>www.</c> and bare-domain variants land on the same key), and its mod key is resolved
+    /// immediately if possible — left unresolved, to retry on the next check, otherwise.
+    /// </summary>
+    private UpdateTracking? ResolveTracking(string? modPageUrl, string? version, string displayName, IReadOnlyList<InstallRecordFile> files)
+    {
+        if (string.IsNullOrWhiteSpace(modPageUrl) || !Uri.TryCreate(modPageUrl, UriKind.Absolute, out Uri? uri))
+        {
+            return null;
+        }
+
+        IModSiteStrategy? strategy = _siteStrategies.FirstOrDefault(
+            candidate => candidate.Hosts.Any(host => string.Equals(host, uri.Host, StringComparison.OrdinalIgnoreCase)));
+
+        if (strategy is null)
+        {
+            return null;
+        }
+
+        SiteModKey? resolvedKey = strategy.TryResolveModKey(new ModKeyHints(modPageUrl, null, displayName, [.. files.Select(file => file.RelativePath)]));
+        return new UpdateTracking(strategy.SiteKey, resolvedKey?.Value, modPageUrl, version, null, DateTime.UtcNow);
     }
 
     /// <summary>
@@ -551,6 +618,34 @@ public sealed class ModsFolderService : IModsFolderRepository
 
         _logger.LogInformation("Renamed install {InstallId}'s folder from \"{OldFolderName}\" to \"{NewFolderName}\"", installId, oldFolderName, newFolderName);
         return ArchiveInstallResult<InstallRecord>.Ok(renamedRecord);
+    }
+
+    /// <summary>
+    /// Replaces an install record's <see cref="UpdateTracking"/> baseline. See
+    /// <see cref="IModsFolderRepository.UpdateInstallTrackingAsync"/> for what calls this.
+    /// </summary>
+    public async Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(
+        string modsFolderPath,
+        string installId,
+        UpdateTracking tracking,
+        CancellationToken cancellationToken = default)
+    {
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+
+        InstallRecord? record = manifest.Installs.FirstOrDefault(candidate => candidate.InstallId == installId);
+        if (record is null)
+        {
+            _logger.LogWarning("Could not update tracking: no install {InstallId} found in {ModsFolder}", installId, modsFolderPath);
+            return ArchiveInstallResult<InstallRecord>.Fail("Could not find that install.");
+        }
+
+        InstallRecord updated = record with { Tracking = tracking };
+        List<InstallRecord> installs = [.. manifest.Installs.Where(candidate => candidate.InstallId != installId), updated];
+        await _manifestService.SaveAsync(layout, manifest with { Installs = installs }, cancellationToken);
+
+        _logger.LogInformation("Updated tracking for install {InstallId}: site {SiteKey}, mod key {SiteModKey}", installId, tracking.SiteKey, tracking.SiteModKey ?? "(unresolved)");
+        return ArchiveInstallResult<InstallRecord>.Ok(updated);
     }
 
     private static string RewritePrefix(string relativePath, string oldPrefix, string newPrefix) =>

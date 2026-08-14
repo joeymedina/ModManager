@@ -565,4 +565,34 @@ public sealed class ModsPageViewModelTests
             useCase => useCase.LoadFilesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
+
+    // --- OpenModPage -----------------------------------------------------------
+
+    [TestMethod]
+    public void OpenModPage_WhenDetailFileHasAModPageUrl_ThenRaisesOpenModPageRequested()
+    {
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        viewModel.DetailFile = new ModFileViewModel(new ModFile("Main.package", ModFileState.Enabled, 1, DateTime.UtcNow, ModPageUrl: "https://sacrificialmods.com/downloads.html"));
+
+        Uri? raised = null;
+        viewModel.OpenModPageRequested += uri => raised = uri;
+
+        viewModel.OpenModPageCommand.Execute(null);
+
+        Assert.AreEqual(new Uri("https://sacrificialmods.com/downloads.html"), raised);
+    }
+
+    [TestMethod]
+    public void OpenModPage_WhenDetailFileHasNoModPageUrl_ThenDoesNotRaiseOpenModPageRequested()
+    {
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        viewModel.DetailFile = new ModFileViewModel(new ModFile("Main.package", ModFileState.Enabled, 1, DateTime.UtcNow));
+
+        bool raised = false;
+        viewModel.OpenModPageRequested += _ => raised = true;
+
+        viewModel.OpenModPageCommand.Execute(null);
+
+        Assert.IsFalse(raised);
+    }
 }

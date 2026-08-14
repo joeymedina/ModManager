@@ -177,4 +177,17 @@ public sealed class BrowsePageViewModelTests
         Assert.IsNotNull(raised);
         Assert.AreEqual(@"C:\Downloads\mod.zip", raised!.Value.FilePath);
     }
+
+    [TestMethod]
+    public void OpenUrl_WhenCalled_ThenOpensANewTabAtThatAddressAndSelectsIt()
+    {
+        BrowsePageViewModel viewModel = CreateViewModel();
+        BrowserTabViewModel originalTab = viewModel.SelectedTab!;
+
+        viewModel.OpenUrl(new Uri("https://sacrificialmods.com/downloads.html"));
+
+        Assert.HasCount(2, viewModel.Tabs);
+        Assert.AreNotSame(originalTab, viewModel.SelectedTab);
+        Assert.AreEqual("https://sacrificialmods.com/downloads.html", viewModel.SelectedTab!.AddressText);
+    }
 }

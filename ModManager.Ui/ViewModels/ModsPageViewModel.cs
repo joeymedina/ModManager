@@ -218,6 +218,10 @@ public partial class ModsPageViewModel : ViewModelBase
     public Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string rawJson, CancellationToken cancellationToken = default) =>
         _modsFolderUseCase.SaveManifestRawAsync(ModsFolderPath, rawJson, cancellationToken);
 
+    /// <summary>Replaces an install's update-tracking baseline, for the Updates page.</summary>
+    public Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(string installId, UpdateTracking tracking, CancellationToken cancellationToken = default) =>
+        _modsFolderUseCase.UpdateInstallTrackingAsync(ModsFolderPath, installId, tracking, cancellationToken);
+
     [RelayCommand]
     private async Task RefreshAsync()
     {
@@ -344,15 +348,18 @@ public partial class ModsPageViewModel : ViewModelBase
     [RelayCommand]
     private void DismissError() => ErrorMessage = string.Empty;
 
+    /// <summary>Raised so <see cref="MainViewModel"/> can switch to the Browse tab and open the URL there.</summary>
+    public event Action<Uri>? OpenModPageRequested;
+
     [RelayCommand]
     private void OpenModPage()
     {
-        if (DetailFile?.ModPageUrl is not { Length: > 0 } url)
+        if (DetailFile?.ModPageUrl is not { Length: > 0 } url || !Uri.TryCreate(url, UriKind.Absolute, out Uri? uri))
         {
             return;
         }
 
-        LaunchShell(url);
+        OpenModPageRequested?.Invoke(uri);
     }
 
     [RelayCommand]
@@ -1136,6 +1143,13 @@ public partial class ModsPageViewModel : ViewModelBase
             string modsFolderPath,
             string installId,
             string desiredFolderName,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ArchiveInstallResult<InstallRecord>.Fail("Not available at design time."));
+
+        public Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(
+            string modsFolderPath,
+            string installId,
+            UpdateTracking tracking,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ArchiveInstallResult<InstallRecord>.Fail("Not available at design time."));
     }

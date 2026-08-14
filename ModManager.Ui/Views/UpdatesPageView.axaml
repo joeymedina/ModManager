@@ -3,36 +3,110 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:ModManager.Ui.ViewModels"
+             xmlns:ui="using:FluentAvalonia.UI.Controls"
              mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
              x:Class="ModManager.Ui.Views.UpdatesPageView"
+             x:Name="UpdatesRoot"
              x:DataType="vm:UpdatesPageViewModel">
   <Design.DataContext>
     <vm:UpdatesPageViewModel />
   </Design.DataContext>
 
-  <DockPanel Margin="16">
-    <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,12">
-      <TextBlock Text="Updates" FontSize="22" FontWeight="SemiBold" />
-      <TextBlock Text="{Binding StatusMessage}"
-                 Opacity="0.75"
-                 TextWrapping="Wrap" />
-    </StackPanel>
+  <UserControl.Styles>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="TextBlock.label">
+      <Setter Property="Opacity" Value="0.65" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="TextBlock.updateAvailable">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
+    </Style>
+  </UserControl.Styles>
 
-    <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
-            BorderThickness="1"
-            CornerRadius="6"
+  <Grid RowDefinitions="Auto,Auto,*" Margin="20,16,20,0">
+
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+      <StackPanel Grid.Column="0" Spacing="1">
+        <TextBlock Text="Updates" Theme="{DynamicResource TitleTextBlockStyle}" />
+        <TextBlock Text="{Binding StatusMessage}" Classes="label" TextWrapping="Wrap" />
+      </StackPanel>
+
+      <Button Grid.Column="1"
+              Content="Check for updates"
+              Classes="accent"
+              Command="{Binding CheckForUpdatesCommand}"
+              IsEnabled="{Binding !IsBusy}"
+              VerticalAlignment="Top" />
+    </Grid>
+
+    <ProgressBar Grid.Row="1"
+                 IsIndeterminate="True"
+                 IsVisible="{Binding IsBusy}"
+                 Margin="0,0,0,10" />
+
+    <Border Grid.Row="2"
+            Classes="card"
             Padding="24"
+            IsVisible="{Binding !HasRows}"
             HorizontalAlignment="Stretch"
             VerticalAlignment="Stretch">
       <StackPanel Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
-        <TextBlock Text="No updates to show"
+        <TextBlock Text="No tracked mods yet"
                    FontSize="16"
                    FontWeight="SemiBold"
                    HorizontalAlignment="Center" />
-        <TextBlock Text="Update checks will appear here."
-                   Opacity="0.75"
+        <TextBlock Text="Link a mod to its site from the Mods page, then check for updates here."
+                   Classes="label"
+                   TextWrapping="Wrap"
+                   MaxWidth="360"
                    HorizontalAlignment="Center" />
       </StackPanel>
     </Border>
-  </DockPanel>
+
+    <Border Grid.Row="2" Classes="card" Padding="4" IsVisible="{Binding HasRows}">
+      <ListBox ItemsSource="{Binding Rows}" Padding="0,0,4,0">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:UpdateRowViewModel">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12" Margin="0,8">
+              <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding InstalledVersionText, StringFormat='Installed: {0}'}"
+                           Classes="label"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding LastCheckedText, StringFormat='Last checked: {0}'}" Classes="label" />
+              </StackPanel>
+
+              <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center" MinWidth="160">
+                <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding IsUpdateAvailable}">
+                  <ui:FASymbolIcon Symbol="AlertUrgent" Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                  <TextBlock Text="{Binding StatusText}" Classes="updateAvailable" TextWrapping="Wrap" />
+                </StackPanel>
+                <TextBlock Text="{Binding StatusText}" IsVisible="{Binding !IsUpdateAvailable}" TextWrapping="Wrap" />
+              </StackPanel>
+
+              <Button Grid.Column="2"
+                      Content="Open mod page"
+                      Command="{Binding #UpdatesRoot.((vm:UpdatesPageViewModel)DataContext).OpenModPageCommand}"
+                      CommandParameter="{Binding}"
+                      VerticalAlignment="Center" />
+
+              <Button Grid.Column="3"
+                      Content="Mark as current"
+                      Command="{Binding #UpdatesRoot.((vm:UpdatesPageViewModel)DataContext).MarkAsCurrentCommand}"
+                      CommandParameter="{Binding}"
+                      IsEnabled="{Binding CanMarkAsCurrent}"
+                      ToolTip.Tip="Clear this update notice without downloading — use if the site's numbers were wrong or you already updated another way."
+                      VerticalAlignment="Center" />
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Border>
+  </Grid>
 </UserControl>

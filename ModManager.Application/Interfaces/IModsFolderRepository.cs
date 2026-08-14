@@ -32,7 +32,9 @@ public interface IModsFolderRepository
     /// <summary>
     /// Links already-discovered files to a source by writing an InstallRecord that covers their
     /// current paths. Metadata only — never moves or extracts anything. All-or-nothing: fails if any
-    /// path can't be found under either root.
+    /// path can't be found under either root. Adopting path(s) already covered by an earlier install
+    /// record replaces that record rather than adding a duplicate — this is the supported way to
+    /// correct a mistake (wrong URL, wrong version) made on a previous adopt.
     /// </summary>
     Task<ArchiveInstallResult<InstallRecord>> AdoptAsync(
         string modsFolderPath,
@@ -109,5 +111,17 @@ public interface IModsFolderRepository
         string modsFolderPath,
         string installId,
         string desiredFolderName,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces an install record's <see cref="UpdateTracking"/> baseline — used by adoption (set
+    /// tracking for the first time from a pasted mod page URL) and by "mark as current" (re-stamp the
+    /// last-observed site values as the new baseline). Never clears tracking back to null; there is no
+    /// v1 action that un-tracks a mod.
+    /// </summary>
+    Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(
+        string modsFolderPath,
+        string installId,
+        UpdateTracking tracking,
         CancellationToken cancellationToken = default);
 }

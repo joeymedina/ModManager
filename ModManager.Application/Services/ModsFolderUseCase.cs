@@ -164,4 +164,19 @@ public sealed class ModsFolderUseCase(IModsFolderRepository repository) : IModsF
         ArgumentException.ThrowIfNullOrWhiteSpace(desiredFolderName);
         return repository.RenameInstallFolderAsync(modsFolderPath, installId, desiredFolderName, cancellationToken);
     }
+
+    /// <summary>
+    /// Replaces an install record's <see cref="UpdateTracking"/> baseline.
+    /// </summary>
+    public Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(
+        string modsFolderPath,
+        string installId,
+        UpdateTracking tracking,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(installId);
+        ArgumentNullException.ThrowIfNull(tracking);
+        return repository.UpdateInstallTrackingAsync(modsFolderPath, installId, tracking, cancellationToken);
+    }
 }

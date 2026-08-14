@@ -103,4 +103,13 @@ public interface IModsFolderUseCase
         string installId,
         string desiredFolderName,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces an install record's <see cref="UpdateTracking"/> baseline.
+    /// </summary>
+    Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(
+        string modsFolderPath,
+        string installId,
+        UpdateTracking tracking,
+        CancellationToken cancellationToken = default);
 }

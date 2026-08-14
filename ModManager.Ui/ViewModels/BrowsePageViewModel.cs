@@ -51,6 +51,13 @@ public partial class BrowsePageViewModel : ViewModelBase
         AddTab();
     }
 
+    /// <summary>Opens a URL in a new tab — the Mods and Updates pages' "Open mod page" actions land here.</summary>
+    public void OpenUrl(Uri uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        AddTab(uri);
+    }
+
     [RelayCommand]
     private void SelectTab(BrowserTabViewModel? tab)
     {
