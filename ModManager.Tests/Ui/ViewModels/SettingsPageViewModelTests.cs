@@ -463,4 +463,141 @@ public sealed class SettingsPageViewModelTests
         Assert.AreEqual(ThemePresets.DefaultLight.Name, settingsViewModel.SelectedTheme.Name);
         StringAssert.Contains(settingsViewModel.StatusMessage, "built-in theme");
     }
+
+    // --- ViewManifestAsync --------------------------------------------------------
+
+    /// <summary>
+    /// Wires the mocks for a manifest-viewer open where the dialog's "Save" button is clicked.
+    /// When <paramref name="editedRawJson"/> is given, it's written to the seeded view model's
+    /// <see cref="ManifestViewerViewModel.RawJson"/> from inside the ShowAsync callback — the only
+    /// point at which the test can reach the view model while it's "open" — simulating the user
+    /// having typed something before dismissing the dialog.
+    /// </summary>
+    private void SetUpManifestViewer(ModsManifest manifest, ManifestRawContent raw, string? editedRawJson = null)
+    {
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.LoadManifestAsync("C:/Mods", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(manifest);
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.ReadManifestRawAsync("C:/Mods", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(raw);
+
+        settingsDialogServiceMock
+            .Setup(dialog => dialog.ShowAsync("Mods manifest", AppDialog.ManifestViewer, It.IsAny<object>(), "Save"))
+            .Callback<string, AppDialog, object, string>((_, _, context, _) =>
+            {
+                if (editedRawJson is not null)
+                {
+                    ((ManifestViewerViewModel)context).RawJson = editedRawJson;
+                }
+            })
+            .ReturnsAsync(true);
+    }
+
+    [TestMethod]
+    public async Task ViewManifestAsync_WhenCalled_ThenShowsTheManifestViewerDialogSeededFromTheUseCase()
+    {
+        ModsPageViewModel mods = CreateModsViewModel("C:/Mods");
+        SettingsPageViewModel settingsViewModel = CreateSettingsViewModel(mods);
+        ModsManifest manifest = ModsManifest.Empty with { Files = [new ManifestFileEntry("WW_main.package", "WickedWhims")] };
+        ManifestRawContent raw = new("C:/Mods/.modmanager.json", true, "{}");
+        ManifestViewerViewModel? seededViewer = null;
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.LoadManifestAsync("C:/Mods", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(manifest);
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.ReadManifestRawAsync("C:/Mods", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(raw);
+        settingsDialogServiceMock
+            .Setup(dialog => dialog.ShowAsync("Mods manifest", AppDialog.ManifestViewer, It.IsAny<object>(), "Save"))
+            .Callback<string, AppDialog, object, string>((_, _, context, _) => seededViewer = (ManifestViewerViewModel)context)
+            .ReturnsAsync(false);
+
+        await settingsViewModel.ViewManifestCommand.ExecuteAsync(null);
+
+        Assert.IsNotNull(seededViewer);
+        Assert.AreEqual("C:/Mods/.modmanager.json", seededViewer.ManifestPath);
+        Assert.HasCount(1, seededViewer.Files);
+        Assert.AreEqual("WickedWhims", seededViewer.Files[0].DisplayName);
+    }
+
+    [TestMethod]
+    public async Task ViewManifestAsync_WhenPrimaryClickedWithNoEdits_ThenDoesNotPromptOrSave()
+    {
+        ModsPageViewModel mods = CreateModsViewModel("C:/Mods");
+        SettingsPageViewModel settingsViewModel = CreateSettingsViewModel(mods);
+        SetUpManifestViewer(ModsManifest.Empty, new ManifestRawContent("C:/Mods/.modmanager.json", true, "{}"));
+
+        await settingsViewModel.ViewManifestCommand.ExecuteAsync(null);
+
+        settingsDialogServiceMock.Verify(
+            dialog => dialog.ConfirmAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()),
+            Times.Never);
+        modsFolderUseCaseMock.Verify(
+            useCase => useCase.SaveManifestRawAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ViewManifestAsync_WhenEditedAndConfirmed_ThenSavesRefreshesAndReportsSuccess()
+    {
+        ModsPageViewModel mods = CreateModsViewModel("C:/Mods");
+        SettingsPageViewModel settingsViewModel = CreateSettingsViewModel(mods);
+        ModsManifest saved = ModsManifest.Empty with { Files = [new ManifestFileEntry("WW_main.package", "WickedWhims")] };
+        SetUpManifestViewer(ModsManifest.Empty, new ManifestRawContent("C:/Mods/.modmanager.json", true, "{}"), editedRawJson: "{ edited }");
+        settingsDialogServiceMock
+            .Setup(dialog => dialog.ConfirmAsync(It.IsAny<string>(), It.IsAny<string>(), "Save", true))
+            .ReturnsAsync(true);
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.SaveManifestRawAsync("C:/Mods", "{ edited }", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ArchiveInstallResult<ModsManifest>.Ok(saved));
+
+        await settingsViewModel.ViewManifestCommand.ExecuteAsync(null);
+
+        Assert.AreEqual("Saved the manifest.", settingsViewModel.StatusMessage);
+        modsFolderUseCaseMock.Verify(
+            useCase => useCase.SaveManifestRawAsync("C:/Mods", "{ edited }", It.IsAny<CancellationToken>()),
+            Times.Once);
+        modsFolderUseCaseMock.Verify(
+            useCase => useCase.LoadFilesAsync("C:/Mods", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ViewManifestAsync_WhenEditedButConfirmDeclined_ThenDoesNotSave()
+    {
+        ModsPageViewModel mods = CreateModsViewModel("C:/Mods");
+        SettingsPageViewModel settingsViewModel = CreateSettingsViewModel(mods);
+        SetUpManifestViewer(ModsManifest.Empty, new ManifestRawContent("C:/Mods/.modmanager.json", true, "{}"), editedRawJson: "{ edited }");
+        settingsDialogServiceMock
+            .Setup(dialog => dialog.ConfirmAsync(It.IsAny<string>(), It.IsAny<string>(), "Save", true))
+            .ReturnsAsync(false);
+
+        await settingsViewModel.ViewManifestCommand.ExecuteAsync(null);
+
+        modsFolderUseCaseMock.Verify(
+            useCase => useCase.SaveManifestRawAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ViewManifestAsync_WhenSaveIsRejected_ThenShowsTheErrorAndDoesNotRefresh()
+    {
+        ModsPageViewModel mods = CreateModsViewModel("C:/Mods");
+        SettingsPageViewModel settingsViewModel = CreateSettingsViewModel(mods);
+        SetUpManifestViewer(ModsManifest.Empty, new ManifestRawContent("C:/Mods/.modmanager.json", true, "{}"), editedRawJson: "{ not valid json");
+        settingsDialogServiceMock
+            .Setup(dialog => dialog.ConfirmAsync(It.IsAny<string>(), It.IsAny<string>(), "Save", true))
+            .ReturnsAsync(true);
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.SaveManifestRawAsync("C:/Mods", "{ not valid json", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ArchiveInstallResult<ModsManifest>.Fail("That JSON isn't a valid manifest: the JSON is invalid."));
+
+        await settingsViewModel.ViewManifestCommand.ExecuteAsync(null);
+
+        Assert.AreEqual("That JSON isn't a valid manifest: the JSON is invalid.", settingsViewModel.StatusMessage);
+        modsFolderUseCaseMock.Verify(
+            useCase => useCase.LoadFilesAsync("C:/Mods", It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
 }

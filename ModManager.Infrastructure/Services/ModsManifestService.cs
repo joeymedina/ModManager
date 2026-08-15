@@ -129,6 +129,67 @@ public sealed class ModsManifestService(ILogger<ModsManifestService>? logger = n
         return ModsManifest.Empty with { UnreadableReason = reason };
     }
 
-    private static string GetManifestPath(ModsFolderLayout layout) =>
+    /// <summary>
+    /// Reads the manifest file's raw JSON text, exactly as it is on disk. Returns null if no
+    /// manifest file exists yet. Never throws.
+    /// </summary>
+    public async Task<string?> ReadRawAsync(ModsFolderLayout layout, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+
+        string path = GetManifestPath(layout);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return await File.ReadAllTextAsync(path, cancellationToken);
+        }
+        catch (IOException ex)
+        {
+            _logger.LogError(ex, "Could not read raw manifest text at {ManifestPath}", path);
+            return null;
+        }
+    }
+
+    public static string GetManifestPath(ModsFolderLayout layout) =>
         Path.Combine(layout.ModsFolderPath, ".modmanager.json");
+
+    /// <summary>
+    /// Attempts to parse manually edited JSON text into a manifest, applying the same acceptance
+    /// rules as <see cref="LoadAsync"/> (must deserialize, must not be an older schema). Never
+    /// writes anything; never throws.
+    /// </summary>
+    public static bool TryParseRaw(string rawJson, out ModsManifest? manifest, out string? error)
+    {
+        try
+        {
+            ModsManifest? parsed = JsonSerializer.Deserialize<ModsManifest>(rawJson, SerializerOptions);
+            if (parsed is null)
+            {
+                manifest = null;
+                error = "the JSON contained no manifest data";
+                return false;
+            }
+
+            if (parsed.SchemaVersion < ModsManifest.CurrentSchemaVersion)
+            {
+                manifest = null;
+                error = $"it uses schema version {parsed.SchemaVersion}, older than the supported version {ModsManifest.CurrentSchemaVersion}";
+                return false;
+            }
+
+            manifest = parsed;
+            error = null;
+            return true;
+        }
+        catch (JsonException ex)
+        {
+            manifest = null;
+            error = $"the JSON is invalid ({ex.Message})";
+            return false;
+        }
+    }
 }

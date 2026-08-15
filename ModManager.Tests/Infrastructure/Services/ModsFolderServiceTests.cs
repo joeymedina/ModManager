@@ -338,6 +338,76 @@ public sealed class ModsFolderServiceTests
         Assert.IsNull(files.Single().Category);
     }
 
+    [TestMethod]
+    public async Task ReadManifestRawAsync_WhenNoManifestFileExists_ThenReturnsNotExistsWithNullJson()
+    {
+        var service = new ModsFolderService();
+
+        ManifestRawContent raw = await service.ReadManifestRawAsync(modsFolderPath, CancellationToken.None);
+
+        Assert.IsFalse(raw.Exists);
+        Assert.IsNull(raw.Json);
+        Assert.AreEqual(Path.Combine(modsFolderPath, ".modmanager.json"), raw.Path);
+    }
+
+    [TestMethod]
+    public async Task ReadManifestRawAsync_WhenManifestFileExists_ThenReturnsItsExactText()
+    {
+        CreateFile(modsFolderPath, "Real.package");
+        var service = new ModsFolderService();
+        await service.AdoptAsync(modsFolderPath, ["Real.package"], "My Mod", null, null, CancellationToken.None);
+        string expectedText = await File.ReadAllTextAsync(Path.Combine(modsFolderPath, ".modmanager.json"));
+
+        ManifestRawContent raw = await service.ReadManifestRawAsync(modsFolderPath, CancellationToken.None);
+
+        Assert.IsTrue(raw.Exists);
+        Assert.AreEqual(expectedText, raw.Json);
+    }
+
+    [TestMethod]
+    public async Task LoadManifestAsync_WhenManifestHasAdoptedFiles_ThenReturnsFilesGroupsAndInstalls()
+    {
+        CreateFile(modsFolderPath, "Real.package");
+        var service = new ModsFolderService();
+        await service.AdoptAsync(modsFolderPath, ["Real.package"], "My Mod", "https://example.com", "1.0", CancellationToken.None);
+        await service.AddToGroupAsync(modsFolderPath, ["Real.package"], "My Group", CancellationToken.None);
+
+        ModsManifest manifest = await service.LoadManifestAsync(modsFolderPath, CancellationToken.None);
+
+        Assert.HasCount(1, manifest.Files);
+        Assert.HasCount(1, manifest.Groups);
+        Assert.HasCount(1, manifest.Installs);
+        Assert.AreEqual("My Group", manifest.Groups[0].Name);
+        Assert.AreEqual("My Mod", manifest.Files[0].DisplayName);
+        Assert.AreEqual("adopted", manifest.Installs[0].Source.Provider);
+    }
+
+    [TestMethod]
+    public async Task SaveManifestRawAsync_WhenJsonIsValid_ThenWritesItAndReturnsTheParsedManifest()
+    {
+        var service = new ModsFolderService();
+        const string rawJson = """{"SchemaVersion":1,"Files":[{"RelativePath":"Edited.package","DisplayName":"Edited"}],"Groups":[],"Installs":[]}""";
+
+        ArchiveInstallResult<ModsManifest> result = await service.SaveManifestRawAsync(modsFolderPath, rawJson, CancellationToken.None);
+
+        Assert.IsTrue(result.Success);
+        Assert.HasCount(1, result.Value!.Files);
+        Assert.AreEqual("Edited", result.Value.Files[0].DisplayName);
+        Assert.IsTrue(File.Exists(Path.Combine(modsFolderPath, ".modmanager.json")));
+    }
+
+    [TestMethod]
+    public async Task SaveManifestRawAsync_WhenJsonIsInvalid_ThenFailsAndWritesNothing()
+    {
+        var service = new ModsFolderService();
+
+        ArchiveInstallResult<ModsManifest> result = await service.SaveManifestRawAsync(modsFolderPath, "{ not valid json", CancellationToken.None);
+
+        Assert.IsFalse(result.Success);
+        StringAssert.Contains(result.Error, "isn't a valid manifest");
+        Assert.IsFalse(File.Exists(Path.Combine(modsFolderPath, ".modmanager.json")));
+    }
+
     private static void CreateFile(string root, string relativePath)
     {
         string fullPath = Path.Combine(root, relativePath);

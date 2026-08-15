@@ -78,4 +78,20 @@ public interface IModsFolderUseCase
         IReadOnlyList<string> relativePaths,
         string? category,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Loads the full manifest (files, groups, and installs) for display. Never writes.
+    /// </summary>
+    Task<ModsManifest> LoadManifestAsync(string modsFolderPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads the manifest file's raw JSON text, for display verbatim. Never writes.
+    /// </summary>
+    Task<ManifestRawContent> ReadManifestRawAsync(string modsFolderPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Parses and saves manually edited manifest JSON. Rejects (without writing) JSON that doesn't
+    /// parse or uses an unsupported schema version.
+    /// </summary>
+    Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string modsFolderPath, string rawJson, CancellationToken cancellationToken = default);
 }

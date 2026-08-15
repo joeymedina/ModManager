@@ -72,4 +72,58 @@ public sealed class ModsFolderUseCaseTests
         Assert.AreSame(expected, actual);
         repositoryMock.Verify(repository => repository.SetCategoryAsync("C:/Mods", paths, "Scripts", CancellationToken.None), Times.Once);
     }
+
+    [TestMethod]
+    public async Task LoadManifestAsync_WhenRepositoryReturnsAManifest_ThenReturnsSameResult()
+    {
+        ModsManifest expected = ModsManifest.Empty with { Files = [new ManifestFileEntry("WW_main.package", "WickedWhims")] };
+        var repositoryMock = new Mock<IModsFolderRepository>(MockBehavior.Strict);
+
+        repositoryMock
+            .Setup(repository => repository.LoadManifestAsync("C:/Mods", CancellationToken.None))
+            .ReturnsAsync(expected);
+
+        var useCase = new ModsFolderUseCase(repositoryMock.Object);
+
+        ModsManifest actual = await useCase.LoadManifestAsync("C:/Mods", CancellationToken.None);
+
+        Assert.AreSame(expected, actual);
+        repositoryMock.Verify(repository => repository.LoadManifestAsync("C:/Mods", CancellationToken.None), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ReadManifestRawAsync_WhenRepositoryReturnsRawContent_ThenReturnsSameResult()
+    {
+        ManifestRawContent expected = new("C:/Mods/.modmanager.json", true, "{}");
+        var repositoryMock = new Mock<IModsFolderRepository>(MockBehavior.Strict);
+
+        repositoryMock
+            .Setup(repository => repository.ReadManifestRawAsync("C:/Mods", CancellationToken.None))
+            .ReturnsAsync(expected);
+
+        var useCase = new ModsFolderUseCase(repositoryMock.Object);
+
+        ManifestRawContent actual = await useCase.ReadManifestRawAsync("C:/Mods", CancellationToken.None);
+
+        Assert.AreSame(expected, actual);
+        repositoryMock.Verify(repository => repository.ReadManifestRawAsync("C:/Mods", CancellationToken.None), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SaveManifestRawAsync_WhenRepositoryReturnsAResult_ThenReturnsSameResult()
+    {
+        ArchiveInstallResult<ModsManifest> expected = ArchiveInstallResult<ModsManifest>.Ok(ModsManifest.Empty);
+        var repositoryMock = new Mock<IModsFolderRepository>(MockBehavior.Strict);
+
+        repositoryMock
+            .Setup(repository => repository.SaveManifestRawAsync("C:/Mods", "{}", CancellationToken.None))
+            .ReturnsAsync(expected);
+
+        var useCase = new ModsFolderUseCase(repositoryMock.Object);
+
+        ArchiveInstallResult<ModsManifest> actual = await useCase.SaveManifestRawAsync("C:/Mods", "{}", CancellationToken.None);
+
+        Assert.AreSame(expected, actual);
+        repositoryMock.Verify(repository => repository.SaveManifestRawAsync("C:/Mods", "{}", CancellationToken.None), Times.Once);
+    }
 }

@@ -67,4 +67,39 @@ public sealed class ModsManifestServiceTests
         Assert.HasCount(1, loaded.Files);
         Assert.AreEqual("A", loaded.Files[0].DisplayName);
     }
+
+    [TestMethod]
+    public void TryParseRaw_WhenJsonIsValid_ThenReturnsTrueWithTheParsedManifest()
+    {
+        const string rawJson = """{"SchemaVersion":1,"Files":[{"RelativePath":"a.package","DisplayName":"A"}],"Groups":[],"Installs":[]}""";
+
+        bool success = ModsManifestService.TryParseRaw(rawJson, out ModsManifest? manifest, out string? error);
+
+        Assert.IsTrue(success);
+        Assert.IsNull(error);
+        Assert.HasCount(1, manifest!.Files);
+        Assert.AreEqual("A", manifest.Files[0].DisplayName);
+    }
+
+    [TestMethod]
+    public void TryParseRaw_WhenJsonIsMalformed_ThenReturnsFalseWithAnError()
+    {
+        bool success = ModsManifestService.TryParseRaw("{ not valid json", out ModsManifest? manifest, out string? error);
+
+        Assert.IsFalse(success);
+        Assert.IsNull(manifest);
+        StringAssert.Contains(error, "invalid");
+    }
+
+    [TestMethod]
+    public void TryParseRaw_WhenSchemaVersionIsOlderThanSupported_ThenReturnsFalseWithAnError()
+    {
+        const string rawJson = """{"SchemaVersion":0,"Files":[],"Groups":[],"Installs":[]}""";
+
+        bool success = ModsManifestService.TryParseRaw(rawJson, out ModsManifest? manifest, out string? error);
+
+        Assert.IsFalse(success);
+        Assert.IsNull(manifest);
+        StringAssert.Contains(error, "schema version");
+    }
 }
