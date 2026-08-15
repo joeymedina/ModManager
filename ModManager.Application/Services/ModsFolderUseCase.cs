@@ -149,4 +149,58 @@ public sealed class ModsFolderUseCase(IModsFolderRepository repository) : IModsF
         ArgumentNullException.ThrowIfNull(rawJson);
         return repository.SaveManifestRawAsync(modsFolderPath, rawJson, cancellationToken);
     }
+
+    /// <summary>
+    /// Renames an install's on-disk folder and rewrites every stored reference to its old path.
+    /// </summary>
+    public Task<ArchiveInstallResult<InstallRecord>> RenameInstallFolderAsync(
+        string modsFolderPath,
+        string installId,
+        string desiredFolderName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(installId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(desiredFolderName);
+        return repository.RenameInstallFolderAsync(modsFolderPath, installId, desiredFolderName, cancellationToken);
+    }
+
+    /// <summary>
+    /// Replaces an install record's <see cref="UpdateTracking"/> baseline.
+    /// </summary>
+    public Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(
+        string modsFolderPath,
+        string installId,
+        UpdateTracking tracking,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(installId);
+        ArgumentNullException.ThrowIfNull(tracking);
+        return repository.UpdateInstallTrackingAsync(modsFolderPath, installId, tracking, cancellationToken);
+    }
+
+    /// <summary>
+    /// Finds an existing tracked install matching the same site and mod key as <paramref name="hints"/>
+    /// resolves to.
+    /// </summary>
+    public Task<TrackedMod?> FindMatchingTrackedInstallAsync(
+        string modsFolderPath,
+        ModKeyHints hints,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(hints);
+        return repository.FindMatchingTrackedInstallAsync(modsFolderPath, hints, cancellationToken);
+    }
+
+    /// <summary>
+    /// Best-effort live lookup of a mod's current version from its page.
+    /// </summary>
+    public Task<string?> TryFetchCurrentVersionAsync(string modPageUrl, string displayName, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modPageUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
+        return repository.TryFetchCurrentVersionAsync(modPageUrl, displayName, cancellationToken);
+    }
 }

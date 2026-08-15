@@ -39,6 +39,24 @@
     </StackPanel>
 
     <StackPanel Spacing="4" IsVisible="{Binding HasArchivePreview}">
+      <TextBlock Text="Version (optional)" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <TextBox PlaceholderText="e.g. 2.3.1"
+               Text="{Binding InstallVersionInput}"
+               IsEnabled="{Binding !IsBusy}" />
+    </StackPanel>
+
+    <StackPanel Spacing="4" IsVisible="{Binding HasArchivePreview}">
+      <TextBlock Text="Mod page (optional)" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
+      <TextBox PlaceholderText="https://…"
+               Text="{Binding InstallModPageUrlInput}"
+               IsEnabled="{Binding !IsBusy}" />
+      <TextBlock Text="Captured from the page you downloaded from — check it's the mod's own page, not a listing or search page."
+                 TextWrapping="Wrap"
+                 Opacity="0.75"
+                 IsVisible="{Binding InstallModPageUrlInput, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    </StackPanel>
+
+    <StackPanel Spacing="4" IsVisible="{Binding HasArchivePreview}">
       <TextBlock Text="Files to install" Theme="{DynamicResource CaptionTextBlockStyle}" Opacity="0.7" />
       <ListBox ItemsSource="{Binding ArchivePreviewEntries}"
                SelectionMode="Toggle"

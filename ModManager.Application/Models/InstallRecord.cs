@@ -11,4 +11,5 @@ public sealed record InstallRecord(
     DateTime InstalledUtc,
     string? SourceArchivePath,
     IReadOnlyList<InstallRecordFile> Files,
-    IReadOnlyList<string> SkippedEntries);
+    IReadOnlyList<string> SkippedEntries,
+    UpdateTracking? Tracking = null);

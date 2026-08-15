@@ -142,6 +142,66 @@ public sealed class ModsFileOperationsService(ModsFolderPathService pathService,
         return Task.FromResult<IReadOnlyList<ModFileFailure>>(failures);
     }
 
+    /// <summary>
+    /// Deletes each of the given relative paths from <paramref name="installRoot"/> if present, then
+    /// removes any directory left empty by the deletion. Used to prune the files an update or
+    /// supersede no longer includes. A record's paths may come from a hand-edited manifest rather
+    /// than a fresh extraction, so containment under <paramref name="installRoot"/> is re-checked
+    /// here rather than assumed; a path that would escape it is skipped and reported instead of
+    /// aborting the rest of the prune, matching this service's other bulk operations. A path that no
+    /// longer exists is treated as already-clean, not a failure.
+    /// </summary>
+    public Task<IReadOnlyList<ModFileFailure>> DeleteStalePathsAsync(string installRoot, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(installRoot);
+        ArgumentNullException.ThrowIfNull(relativePaths);
+
+        List<ModFileFailure> failures = [];
+
+        foreach (string relativePath in relativePaths)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string path;
+            try
+            {
+                path = pathService.ResolveValidatedPath(installRoot, relativePath);
+            }
+            catch (InvalidOperationException)
+            {
+                _logger.LogWarning("Skipped deleting a stale file entry escaping {InstallRoot}: {RelativePath}", installRoot, relativePath);
+                failures.Add(new ModFileFailure(relativePath, "Path escapes the install root."));
+                continue;
+            }
+
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Delete(path);
+                // Inferred from a previous install record, not chosen by the user in this action —
+                // log every path so a wrong record is traceable after the fact.
+                _logger.LogInformation("Deleted stale file {DeletedPath}", path);
+                RemoveEmptyDirectories(Path.GetDirectoryName(path), installRoot);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete stale file {DeletedPath}", path);
+                failures.Add(new ModFileFailure(relativePath, ex.Message));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "Access denied while deleting stale file {DeletedPath}", path);
+                failures.Add(new ModFileFailure(relativePath, ex.Message));
+            }
+        }
+
+        return Task.FromResult<IReadOnlyList<ModFileFailure>>(failures);
+    }
+
     private void RemoveEmptyDirectories(string? directory, string stopAt)
     {
         if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(stopAt))

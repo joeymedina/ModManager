@@ -14,6 +14,7 @@ public sealed class ModsFolderService : IModsFolderRepository
     private readonly ModsDiscoveryService _discoveryService;
     private readonly ModsFileOperationsService _fileOperationsService;
     private readonly ModsManifestService _manifestService;
+    private readonly SiteTrackingResolver _siteTrackingResolver;
     private readonly ILogger<ModsFolderService> _logger;
 
     public ModsFolderService():
@@ -21,7 +22,8 @@ public sealed class ModsFolderService : IModsFolderRepository
             new ModsFolderPathService(),
             new ModsDiscoveryService(),
             new ModsFileOperationsService(new ModsFolderPathService()),
-            new ModsManifestService())
+            new ModsManifestService(),
+            new SiteTrackingResolver([]))
     {
     }
 
@@ -30,12 +32,14 @@ public sealed class ModsFolderService : IModsFolderRepository
         ModsDiscoveryService discoveryService,
         ModsFileOperationsService fileOperationsService,
         ModsManifestService manifestService,
+        SiteTrackingResolver siteTrackingResolver,
         ILogger<ModsFolderService>? logger = null)
     {
         _pathService = pathService;
         _discoveryService = discoveryService;
         _fileOperationsService = fileOperationsService;
         _manifestService = manifestService;
+        _siteTrackingResolver = siteTrackingResolver;
         _logger = logger ?? NullLogger<ModsFolderService>.Instance;
     }
 
@@ -130,7 +134,9 @@ public sealed class ModsFolderService : IModsFolderRepository
 
     /// <summary>
     /// Deletes the given files from active and/or disabled folders. A conflicted path is removed
-    /// from both.
+    /// from both. Every successfully deleted path is also pruned from the manifest — its file entry,
+    /// and its place in any install record and group — so a deleted mod doesn't linger as a phantom
+    /// entry (see <see cref="PruneManifestAsync"/>).
     /// </summary>
     public async Task<IReadOnlyList<ModFileFailure>> DeleteAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
     {
@@ -146,7 +152,53 @@ public sealed class ModsFolderService : IModsFolderRepository
 
         IReadOnlyList<ModFileFailure> deleteFailures = await _fileOperationsService.DeleteFilesAsync(matched, layout, cancellationToken);
         failures.AddRange(deleteFailures);
+
+        HashSet<string> failedPaths = new(deleteFailures.Select(failure => failure.RelativePath), StringComparer.OrdinalIgnoreCase);
+        List<string> deletedPaths = [.. matched.Select(file => file.RelativePath).Where(path => !failedPaths.Contains(path))];
+        if (deletedPaths.Count > 0)
+        {
+            await PruneManifestAsync(layout, deletedPaths, cancellationToken);
+        }
+
         return failures;
+    }
+
+    /// <summary>
+    /// Removes every manifest trace of files actually deleted from disk: the file entry (display
+    /// name/group/notes/category), membership in any group, and the file's place in any install
+    /// record. A record that loses every one of its files is dropped entirely, <see cref="UpdateTracking"/>
+    /// included — otherwise a deleted mod's tracking lingered forever and the Updates page kept
+    /// reporting on a mod that no longer exists on disk. A record that keeps some files is trimmed to
+    /// just those and stays tracked, since the mod is still partially installed.
+    /// </summary>
+    private async Task PruneManifestAsync(ModsFolderLayout layout, IReadOnlyList<string> deletedPaths, CancellationToken cancellationToken)
+    {
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+        HashSet<string> deleted = new(deletedPaths, StringComparer.OrdinalIgnoreCase);
+
+        List<ManifestFileEntry> files = [.. manifest.Files.Where(entry => !deleted.Contains(entry.RelativePath))];
+
+        List<ModGroup> groups = [];
+        foreach (ModGroup group in manifest.Groups)
+        {
+            List<string> remainingMembers = [.. group.Members.Where(member => !deleted.Contains(member))];
+            if (remainingMembers.Count > 0)
+            {
+                groups.Add(remainingMembers.Count == group.Members.Count ? group : group with { Members = remainingMembers });
+            }
+        }
+
+        List<InstallRecord> installs = [];
+        foreach (InstallRecord record in manifest.Installs)
+        {
+            List<InstallRecordFile> remainingFiles = [.. record.Files.Where(file => !deleted.Contains(file.RelativePath))];
+            if (remainingFiles.Count > 0)
+            {
+                installs.Add(remainingFiles.Count == record.Files.Count ? record : record with { Files = remainingFiles });
+            }
+        }
+
+        await _manifestService.SaveAsync(layout, manifest with { Files = files, Groups = groups, Installs = installs }, cancellationToken);
     }
 
     private async Task<IReadOnlyList<ModFileFailure>> ChangeStateAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, ModFileState targetState, CancellationToken cancellationToken)
@@ -226,15 +278,48 @@ public sealed class ModsFolderService : IModsFolderRepository
             DateTime.UtcNow,
             null,
             files,
-            []);
+            [],
+            _siteTrackingResolver.ResolveTracking(modPageUrl, version, displayName, [.. files.Select(file => file.RelativePath)]));
 
         ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
         HashSet<string> adoptedPaths = [.. files.Select(file => file.RelativePath)];
-        List<ManifestFileEntry> manifestFiles = [.. manifest.Files.Where(entry => !adoptedPaths.Contains(entry.RelativePath))];
-        manifestFiles.AddRange(files.Select(file => new ManifestFileEntry(file.RelativePath, displayName)));
 
-        ModsManifest updated = manifest with { Files = manifestFiles, Installs = [.. manifest.Installs, record] };
+        // Re-adopting the same file(s) is how a mistake (wrong URL, wrong version) gets corrected, so
+        // any existing record sharing a path with this adoption is replaced rather than left behind as
+        // a stale duplicate — the same append-only bug this fixed for ArchiveInstallService.InstallAsync
+        // via its `supersedes` parameter. "Any shared path" rather than an exact-set match also means
+        // this self-heals a manifest that already has duplicates from before this fix existed.
+        HashSet<string> supersededInstallIds = [.. manifest.Installs
+            .Where(existing => existing.Files.Any(file => adoptedPaths.Contains(file.RelativePath)))
+            .Select(existing => existing.InstallId)];
+
+        Dictionary<string, ManifestFileEntry> existingByPath = new(StringComparer.OrdinalIgnoreCase);
+        foreach (ManifestFileEntry entry in manifest.Files)
+        {
+            existingByPath[entry.RelativePath] = entry;
+        }
+
+        List<ManifestFileEntry> manifestFiles = [.. manifest.Files.Where(entry => !adoptedPaths.Contains(entry.RelativePath))];
+        manifestFiles.AddRange(files.Select(file =>
+        {
+            // Carries forward GroupId/Category/Notes a file already had — from before it was ever
+            // adopted, or from a previous adopt — rather than silently wiping them, the same fix
+            // ArchiveInstallService.PersistRecordAsync got for the same latent bug.
+            existingByPath.TryGetValue(file.RelativePath, out ManifestFileEntry? existing);
+            return new ManifestFileEntry(file.RelativePath, displayName, existing?.GroupId, existing?.Notes, existing?.Category);
+        }));
+
+        List<InstallRecord> installs = [.. manifest.Installs.Where(existing => !supersededInstallIds.Contains(existing.InstallId)), record];
+        ModsManifest updated = manifest with { Files = manifestFiles, Installs = installs };
         await _manifestService.SaveAsync(layout, updated, cancellationToken);
+
+        if (supersededInstallIds.Count > 0)
+        {
+            _logger.LogInformation(
+                "Adopt of \"{DisplayName}\" superseded {Count} previous install record(s) covering the same path(s)",
+                displayName,
+                supersededInstallIds.Count);
+        }
 
         _logger.LogInformation(
             "Adopted {FileCount} file(s) as \"{DisplayName}\" (install {InstallId}, version {Version})",
@@ -460,6 +545,201 @@ public sealed class ModsFolderService : IModsFolderRepository
         await _manifestService.SaveAsync(layout, parsed!, cancellationToken);
         _logger.LogInformation("Saved a manually edited manifest for {ModsFolder}", modsFolderPath);
         return ArchiveInstallResult<ModsManifest>.Ok(parsed!);
+    }
+
+    /// <summary>
+    /// Renames an install's on-disk folder and rewrites every stored reference to its old path — the
+    /// record's own files, matching manifest file entries, and group membership — as one operation.
+    /// See <see cref="IModsFolderRepository.RenameInstallFolderAsync"/> for the collision and
+    /// rollback behavior.
+    /// </summary>
+    public async Task<ArchiveInstallResult<InstallRecord>> RenameInstallFolderAsync(
+        string modsFolderPath,
+        string installId,
+        string desiredFolderName,
+        CancellationToken cancellationToken = default)
+    {
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+
+        InstallRecord? record = manifest.Installs.FirstOrDefault(candidate => candidate.InstallId == installId);
+        if (record is null || record.Files.Count == 0)
+        {
+            _logger.LogWarning("Rename abandoned: no install {InstallId} with files found in {ModsFolder}", installId, modsFolderPath);
+            return ArchiveInstallResult<InstallRecord>.Fail("Could not find that install.");
+        }
+
+        string? oldFolderName = ModsFolderPathService.TryGetTopLevelFolder(record.Files[0].RelativePath);
+        if (oldFolderName is null)
+        {
+            _logger.LogWarning("Rename abandoned: install {InstallId} has no folder to rename (its files sit directly at the mods root)", installId);
+            return ArchiveInstallResult<InstallRecord>.Fail("This mod isn't in its own folder, so there's nothing to rename.");
+        }
+
+        // Checked before deduping: the mod's own current folder is not a "collision" to dedupe
+        // against, since a rename to the name it already has is a no-op, not a move onto itself.
+        if (string.Equals(oldFolderName, ModsFolderPathService.SanitizeFolderName(desiredFolderName), StringComparison.Ordinal))
+        {
+            return ArchiveInstallResult<InstallRecord>.Ok(record);
+        }
+
+        string newFolderName = ModsFolderPathService.ResolveDedupedFolderName(desiredFolderName, layout.ModsFolderPath, layout.DisabledModsFolderPath);
+
+        // A record's files live under exactly one root, but check both — a mixed-state mod (some
+        // files individually disabled) can have the same folder present under both.
+        List<(string Root, string OldPath, string NewPath)> moves = [.. new[] { layout.ModsFolderPath, layout.DisabledModsFolderPath }
+            .Where(root => Directory.Exists(Path.Combine(root, oldFolderName)))
+            .Select(root => (root, Path.Combine(root, oldFolderName), Path.Combine(root, newFolderName)))];
+
+        if (moves.Count == 0)
+        {
+            _logger.LogWarning("Rename abandoned: install {InstallId}'s folder \"{OldFolderName}\" was not found under either root", installId, oldFolderName);
+            return ArchiveInstallResult<InstallRecord>.Fail("Could not find the mod's folder on disk.");
+        }
+
+        List<(string Root, string OldPath, string NewPath)> moved = [];
+        try
+        {
+            foreach ((string root, string oldPath, string newPath) in moves)
+            {
+                Directory.Move(oldPath, newPath);
+                moved.Add((root, oldPath, newPath));
+            }
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "Failed to rename install {InstallId}'s folder from \"{OldFolderName}\" to \"{NewFolderName}\"", installId, oldFolderName, newFolderName);
+            RollBackFolderMoves(moved);
+            return ArchiveInstallResult<InstallRecord>.Fail(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Access denied renaming install {InstallId}'s folder from \"{OldFolderName}\" to \"{NewFolderName}\"", installId, oldFolderName, newFolderName);
+            RollBackFolderMoves(moved);
+            return ArchiveInstallResult<InstallRecord>.Fail(ex.Message);
+        }
+
+        string oldPrefix = oldFolderName + "/";
+        string newPrefix = newFolderName + "/";
+
+        InstallRecord renamedRecord = record with { Files = [.. record.Files.Select(file => file with { RelativePath = RewritePrefix(file.RelativePath, oldPrefix, newPrefix) })] };
+        List<InstallRecord> installs = [.. manifest.Installs.Where(candidate => candidate.InstallId != installId), renamedRecord];
+        List<ManifestFileEntry> files = [.. manifest.Files.Select(entry => entry with { RelativePath = RewritePrefix(entry.RelativePath, oldPrefix, newPrefix) })];
+        List<ModGroup> groups = [.. manifest.Groups.Select(group => group with { Members = [.. group.Members.Select(member => RewritePrefix(member, oldPrefix, newPrefix))] })];
+
+        try
+        {
+            await _manifestService.SaveAsync(layout, manifest with { Files = files, Groups = groups, Installs = installs }, cancellationToken);
+        }
+        catch
+        {
+            // Disk and manifest must never disagree about where a mod lives — a save failure here
+            // would otherwise orphan every path the manifest still references under the old name.
+            RollBackFolderMoves(moved);
+            throw;
+        }
+
+        _logger.LogInformation("Renamed install {InstallId}'s folder from \"{OldFolderName}\" to \"{NewFolderName}\"", installId, oldFolderName, newFolderName);
+        return ArchiveInstallResult<InstallRecord>.Ok(renamedRecord);
+    }
+
+    /// <summary>
+    /// Replaces an install record's <see cref="UpdateTracking"/> baseline. See
+    /// <see cref="IModsFolderRepository.UpdateInstallTrackingAsync"/> for what calls this.
+    /// </summary>
+    public async Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(
+        string modsFolderPath,
+        string installId,
+        UpdateTracking tracking,
+        CancellationToken cancellationToken = default)
+    {
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+
+        InstallRecord? record = manifest.Installs.FirstOrDefault(candidate => candidate.InstallId == installId);
+        if (record is null)
+        {
+            _logger.LogWarning("Could not update tracking: no install {InstallId} found in {ModsFolder}", installId, modsFolderPath);
+            return ArchiveInstallResult<InstallRecord>.Fail("Could not find that install.");
+        }
+
+        InstallRecord updated = record with { Tracking = tracking };
+        List<InstallRecord> installs = [.. manifest.Installs.Where(candidate => candidate.InstallId != installId), updated];
+        await _manifestService.SaveAsync(layout, manifest with { Installs = installs }, cancellationToken);
+
+        _logger.LogInformation("Updated tracking for install {InstallId}: site {SiteKey}, mod key {SiteModKey}", installId, tracking.SiteKey, tracking.SiteModKey ?? "(unresolved)");
+        return ArchiveInstallResult<InstallRecord>.Ok(updated);
+    }
+
+    /// <summary>
+    /// Finds an existing tracked install that <paramref name="hints"/> resolves to the same
+    /// <c>(SiteKey, SiteModKey)</c> as — the collision check behind the install flow's "this looks
+    /// like an update" prompt. Detection keys on the mod key rather than the folder name deliberately:
+    /// an install's folder is often version-stamped (<c>SAC_Zombie Apocalypse v2.3.1/</c>), so
+    /// consecutive versions never collide on name even though they're the same mod. Null when the URL
+    /// doesn't match a registered strategy or the strategy can't resolve a key from it — a "maybe, but
+    /// we can't tell" case is treated the same as "no match" here, since guessing would risk offering
+    /// to overwrite the wrong mod.
+    /// </summary>
+    public async Task<TrackedMod?> FindMatchingTrackedInstallAsync(string modsFolderPath, ModKeyHints hints, CancellationToken cancellationToken = default)
+    {
+        (IModSiteStrategy Strategy, SiteModKey? ResolvedKey)? match = _siteTrackingResolver.TryMatchStrategy(hints.ModPageUrl, hints);
+        if (match is not { ResolvedKey: not null })
+        {
+            return null;
+        }
+
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+
+        InstallRecord? record = manifest.Installs.FirstOrDefault(candidate =>
+            candidate.Tracking is { } tracking
+            && string.Equals(tracking.SiteKey, match.Value.Strategy.SiteKey, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(tracking.SiteModKey, match.Value.ResolvedKey!.Value, StringComparison.OrdinalIgnoreCase));
+
+        return record is null ? null : new TrackedMod(record, ResolveDisplayName(record, manifest));
+    }
+
+    /// <summary>
+    /// Best-effort live lookup of a mod's current version. See
+    /// <see cref="IModsFolderRepository.TryFetchCurrentVersionAsync"/>.
+    /// </summary>
+    public Task<string?> TryFetchCurrentVersionAsync(string modPageUrl, string displayName, CancellationToken cancellationToken = default) =>
+        _siteTrackingResolver.TryFetchCurrentVersionAsync(modPageUrl, displayName, cancellationToken);
+
+    /// <summary>
+    /// Every file an install wrote shares the same manifest-recorded display name (see
+    /// <see cref="AdoptAsync"/> and <c>ArchiveInstallService.PersistRecordAsync</c>), so the first
+    /// file's entry is enough. Falls back to the install's folder name for a record with no manifest
+    /// entry at all (hand-edited manifest, or a path that no longer resolves).
+    /// </summary>
+    private static string ResolveDisplayName(InstallRecord record, ModsManifest manifest)
+    {
+        if (record.Files.Count == 0)
+        {
+            return "(unknown mod)";
+        }
+
+        string firstPath = record.Files[0].RelativePath;
+        ManifestFileEntry? entry = manifest.Files.FirstOrDefault(file => string.Equals(file.RelativePath, firstPath, StringComparison.OrdinalIgnoreCase));
+        return entry?.DisplayName is { Length: > 0 } displayName ? displayName : firstPath.Split('/', 2)[0];
+    }
+
+    private static string RewritePrefix(string relativePath, string oldPrefix, string newPrefix) =>
+        relativePath.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase)
+            ? newPrefix + relativePath[oldPrefix.Length..]
+            : relativePath;
+
+    private void RollBackFolderMoves(List<(string Root, string OldPath, string NewPath)> moved)
+    {
+        foreach ((string root, string oldPath, string newPath) in moved)
+        {
+            if (Directory.Exists(newPath) && !Directory.Exists(oldPath))
+            {
+                Directory.Move(newPath, oldPath);
+                _logger.LogInformation("Rolled back folder rename in {Root}: {NewPath} -> {OldPath}", root, newPath, oldPath);
+            }
+        }
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using ModManager.Application.Interfaces;
 using ModManager.Infrastructure.Services;
+using ModManager.Infrastructure.Services.Sacrificial;
 using ModManager.Infrastructure.Services.WickedWhims;
 
 namespace ModManager.Infrastructure.Extensions;
@@ -24,6 +25,11 @@ public static class InfrastructureServiceRegistrations
         services.AddSingleton<ModsManifestService>();
         services.AddSingleton<IModsFolderRepository, ModsFolderService>();
         services.AddSingleton<IArchiveInstallService, ArchiveInstallService>();
+
+        services.AddSingleton<IUpdateCheckStateStore, UpdateCheckStateStore>();
+        services.AddSingleton<IModPageFetcher, HttpModPageFetcher>();
+        services.AddSingleton<IModSiteStrategy, SacrificialSiteStrategy>();
+        services.AddSingleton<SiteTrackingResolver>();
 
         return services;
     }

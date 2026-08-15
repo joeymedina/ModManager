@@ -32,7 +32,9 @@ public interface IModsFolderRepository
     /// <summary>
     /// Links already-discovered files to a source by writing an InstallRecord that covers their
     /// current paths. Metadata only — never moves or extracts anything. All-or-nothing: fails if any
-    /// path can't be found under either root.
+    /// path can't be found under either root. Adopting path(s) already covered by an earlier install
+    /// record replaces that record rather than adding a duplicate — this is the supported way to
+    /// correct a mistake (wrong URL, wrong version) made on a previous adopt.
     /// </summary>
     Task<ArchiveInstallResult<InstallRecord>> AdoptAsync(
         string modsFolderPath,
@@ -94,4 +96,51 @@ public interface IModsFolderRepository
     /// parse or uses an unsupported schema version.
     /// </summary>
     Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string modsFolderPath, string rawJson, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Renames an install's on-disk folder and rewrites every stored reference to its old path — the
+    /// record's own files, matching manifest file entries, and group membership — as one operation.
+    /// Existing on disk under both the enabled and disabled root (an install's files live under
+    /// exactly one, but a name collision is checked against both so the new name can't collide with
+    /// an unrelated mod in the other) is moved; if the desired name is already taken, a numeric
+    /// suffix is appended rather than failing. If the manifest write fails after the folder move
+    /// succeeds, the move is rolled back so disk and manifest never disagree about where the mod
+    /// lives.
+    /// </summary>
+    Task<ArchiveInstallResult<InstallRecord>> RenameInstallFolderAsync(
+        string modsFolderPath,
+        string installId,
+        string desiredFolderName,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces an install record's <see cref="UpdateTracking"/> baseline — used by adoption (set
+    /// tracking for the first time from a pasted mod page URL) and by "mark as current" (re-stamp the
+    /// last-observed site values as the new baseline). Never clears tracking back to null; there is no
+    /// v1 action that un-tracks a mod.
+    /// </summary>
+    Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(
+        string modsFolderPath,
+        string installId,
+        UpdateTracking tracking,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Finds an existing tracked install matching the same site and mod key as <paramref name="hints"/>
+    /// resolves to — the collision check behind "this looks like an update to a mod you already have."
+    /// Null when the hints don't resolve to a registered strategy's site, or that strategy can't
+    /// resolve a mod key from them.
+    /// </summary>
+    Task<TrackedMod?> FindMatchingTrackedInstallAsync(
+        string modsFolderPath,
+        ModKeyHints hints,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Best-effort live lookup of a mod's current version from its page, for prefilling the install
+    /// dialog's Version field. Null on anything that isn't a clean success — no matching strategy, no
+    /// resolvable key, a timeout, or a fetch failure — since this is a convenience, not a step the
+    /// install flow depends on.
+    /// </summary>
+    Task<string?> TryFetchCurrentVersionAsync(string modPageUrl, string displayName, CancellationToken cancellationToken = default);
 }

@@ -15,6 +15,7 @@ public static class ApplicationServiceRegistrations
 
         services.AddSingleton<IModUpdateOrchestrator, ModUpdateOrchestrator>();
         services.AddSingleton<IModsFolderUseCase, ModsFolderUseCase>();
+        services.AddSingleton<IModSiteUpdateService, ModSiteUpdateService>();
         return services;
     }
 }

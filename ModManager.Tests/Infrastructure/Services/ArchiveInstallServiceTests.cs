@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using ModManager.Application.Models;
 using ModManager.Infrastructure.Services;
+using ModManager.Tests.Application.Services;
 
 namespace ModManager.Tests.Infrastructure.Services;
 
@@ -34,7 +35,7 @@ public sealed class ArchiveInstallServiceTests
     public async Task PreviewAsync_WhenArchiveHasMixedEntries_ThenClassifiesEachOne()
     {
         string archivePath = CreateZip(("Main.package", "a"), ("Optional/Bright.package", "b"), ("readme.txt", "c"));
-        var service = new ArchiveInstallService(new ModsManifestService());
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
 
         ArchiveInstallResult<ArchivePreview> result = await service.PreviewAsync(archivePath);
 
@@ -56,7 +57,7 @@ public sealed class ArchiveInstallServiceTests
     public async Task PreviewAsync_WhenPackagesShareAStem_ThenBothAreFlaggedAsVariants()
     {
         string archivePath = CreateZip(("Eyes_Blue.package", "a"), ("Eyes_Green.package", "b"));
-        var service = new ArchiveInstallService(new ModsManifestService());
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
 
         ArchiveInstallResult<ArchivePreview> result = await service.PreviewAsync(archivePath);
 
@@ -68,7 +69,7 @@ public sealed class ArchiveInstallServiceTests
     {
         string archivePath = Path.Combine(sandboxPath, "Mod.rar");
         File.WriteAllText(archivePath, "not a zip");
-        var service = new ArchiveInstallService(new ModsManifestService());
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
 
         ArchiveInstallResult<ArchivePreview> result = await service.PreviewAsync(archivePath);
 
@@ -80,7 +81,7 @@ public sealed class ArchiveInstallServiceTests
     public async Task InstallAsync_WhenEntriesAreSelected_ThenWritesOnlySelectedEntries()
     {
         string archivePath = CreateZip(("Main.package", "a"), ("Optional/Bright.package", "b"), ("readme.txt", "c"));
-        var service = new ArchiveInstallService(new ModsManifestService());
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
 
         ArchiveInstallResult<InstallRecord> result = await service.InstallAsync(
             archivePath,
@@ -103,7 +104,7 @@ public sealed class ArchiveInstallServiceTests
     public async Task InstallAsync_WhenTs4ScriptIsNested_ThenFlattensToModFolderRoot()
     {
         string archivePath = CreateZip(("Scripts/Sub/mod.ts4script", "a"));
-        var service = new ArchiveInstallService(new ModsManifestService());
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
 
         ArchiveInstallResult<InstallRecord> result = await service.InstallAsync(
             archivePath,
@@ -124,7 +125,7 @@ public sealed class ArchiveInstallServiceTests
     {
         Directory.CreateDirectory(Path.Combine(modsFolderPath, "My Mod"));
         string archivePath = CreateZip(("Main.package", "a"));
-        var service = new ArchiveInstallService(new ModsManifestService());
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
 
         ArchiveInstallResult<InstallRecord> result = await service.InstallAsync(
             archivePath,
@@ -144,7 +145,7 @@ public sealed class ArchiveInstallServiceTests
     {
         string archivePath = CreateZip(("Main.package", "a"));
         var manifestService = new ModsManifestService();
-        var archiveService = new ArchiveInstallService(manifestService);
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
 
         ArchiveInstallResult<InstallRecord> installResult = await archiveService.InstallAsync(
             archivePath,
@@ -170,7 +171,7 @@ public sealed class ArchiveInstallServiceTests
     {
         string archivePath = CreateZip(("Main.package", "a"));
         var manifestService = new ModsManifestService();
-        var archiveService = new ArchiveInstallService(manifestService);
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
 
         ArchiveInstallResult<InstallRecord> installResult = await archiveService.InstallAsync(
             archivePath,
@@ -194,7 +195,7 @@ public sealed class ArchiveInstallServiceTests
     {
         string bareFilePath = Path.Combine(sandboxPath, "loose.package");
         File.WriteAllText(bareFilePath, "a");
-        var service = new ArchiveInstallService(new ModsManifestService());
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
 
         ArchiveInstallResult<InstallRecord> result = await service.InstallAsync(
             bareFilePath,
@@ -207,6 +208,240 @@ public sealed class ArchiveInstallServiceTests
 
         Assert.IsTrue(result.Success);
         Assert.IsTrue(File.Exists(Path.Combine(modsFolderPath, "Loose Mod", "loose.package")));
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_WhenSuperseding_ThenReplacesTheRecordInsteadOfAppending()
+    {
+        var manifestService = new ModsManifestService();
+        var service = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
+
+        string firstArchive = CreateZip(("Main.package", "v1"));
+        ArchiveInstallResult<InstallRecord> first = await service.InstallAsync(
+            firstArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: "1.0");
+        Assert.IsTrue(first.Success);
+
+        string secondArchive = CreateZip(("Main.package", "v2"));
+        ArchiveInstallResult<InstallRecord> second = await service.InstallAsync(
+            secondArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: "2.0", supersedes: first.Value);
+        Assert.IsTrue(second.Success);
+
+        ModsManifest manifest = await manifestService.LoadAsync(layout, CancellationToken.None);
+        Assert.HasCount(1, manifest.Installs);
+        Assert.AreEqual(second.Value!.InstallId, manifest.Installs[0].InstallId);
+        Assert.AreEqual("v2", File.ReadAllText(Path.Combine(modsFolderPath, "My Mod", "Main.package")));
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_WhenSuperseding_ThenExtractsIntoTheExistingFolderRatherThanADedupedOne()
+    {
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
+
+        string firstArchive = CreateZip(("Main.package", "a"));
+        ArchiveInstallResult<InstallRecord> first = await service.InstallAsync(
+            firstArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: null);
+
+        string secondArchive = CreateZip(("Main.package", "b"));
+        await service.InstallAsync(
+            secondArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: null, supersedes: first.Value);
+
+        Assert.IsFalse(Directory.Exists(Path.Combine(modsFolderPath, "My Mod (2)")));
+        Assert.IsTrue(File.Exists(Path.Combine(modsFolderPath, "My Mod", "Main.package")));
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_WhenSuperseding_ThenDeletesFilesTheNewVersionDropped()
+    {
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
+
+        string firstArchive = CreateZip(("Main.package", "a"), ("Old.package", "b"));
+        ArchiveInstallResult<InstallRecord> first = await service.InstallAsync(
+            firstArchive,
+            new HashSet<string> { "Main.package", "Old.package" },
+            layout,
+            "My Mod",
+            category: null,
+            new InstallSource("manual", null, null),
+            version: "1.0");
+
+        string secondArchive = CreateZip(("Main.package", "a2"));
+        await service.InstallAsync(
+            secondArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: "2.0", supersedes: first.Value);
+
+        Assert.IsTrue(File.Exists(Path.Combine(modsFolderPath, "My Mod", "Main.package")));
+        Assert.IsFalse(File.Exists(Path.Combine(modsFolderPath, "My Mod", "Old.package")));
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_WhenSuperseding_ThenDropsManifestEntriesForDeletedPaths()
+    {
+        var manifestService = new ModsManifestService();
+        var service = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
+
+        string firstArchive = CreateZip(("Main.package", "a"), ("Old.package", "b"));
+        ArchiveInstallResult<InstallRecord> first = await service.InstallAsync(
+            firstArchive,
+            new HashSet<string> { "Main.package", "Old.package" },
+            layout,
+            "My Mod",
+            category: null,
+            new InstallSource("manual", null, null),
+            version: "1.0");
+
+        string secondArchive = CreateZip(("Main.package", "a2"));
+        await service.InstallAsync(
+            secondArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: "2.0", supersedes: first.Value);
+
+        ModsManifest manifest = await manifestService.LoadAsync(layout, CancellationToken.None);
+        Assert.IsFalse(manifest.Files.Any(entry => entry.RelativePath == "My Mod/Old.package"));
+        Assert.IsTrue(manifest.Files.Any(entry => entry.RelativePath == "My Mod/Main.package"));
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_WhenSupersedingAPathThatKeepsGroupMembership_ThenCarriesTheGroupIdForward()
+    {
+        var manifestService = new ModsManifestService();
+        var service = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
+
+        string firstArchive = CreateZip(("Main.package", "a"));
+        ArchiveInstallResult<InstallRecord> first = await service.InstallAsync(
+            firstArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: "1.0");
+
+        ModsManifest manifestBeforeSupersede = await manifestService.LoadAsync(layout, CancellationToken.None);
+        ManifestFileEntry entry = manifestBeforeSupersede.Files.Single(entry => entry.RelativePath == "My Mod/Main.package");
+        await manifestService.SaveAsync(
+            layout,
+            manifestBeforeSupersede with { Files = [entry with { GroupId = "group-1", Notes = "keep me" }] },
+            CancellationToken.None);
+
+        string secondArchive = CreateZip(("Main.package", "a2"));
+        await service.InstallAsync(
+            secondArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: "2.0", supersedes: first.Value);
+
+        ModsManifest manifestAfterSupersede = await manifestService.LoadAsync(layout, CancellationToken.None);
+        ManifestFileEntry updatedEntry = manifestAfterSupersede.Files.Single(entry => entry.RelativePath == "My Mod/Main.package");
+        Assert.AreEqual("group-1", updatedEntry.GroupId);
+        Assert.AreEqual("keep me", updatedEntry.Notes);
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_WhenSupersedingAModThatIsCurrentlyDisabled_ThenExtractsIntoTheDisabledRoot()
+    {
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
+
+        string firstArchive = CreateZip(("Main.package", "a"));
+        ArchiveInstallResult<InstallRecord> first = await service.InstallAsync(
+            firstArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: "1.0");
+
+        Directory.CreateDirectory(layout.DisabledModsFolderPath);
+        Directory.Move(
+            Path.Combine(modsFolderPath, "My Mod"),
+            Path.Combine(layout.DisabledModsFolderPath, "My Mod"));
+
+        string secondArchive = CreateZip(("Main.package", "a2"));
+        ArchiveInstallResult<InstallRecord> second = await service.InstallAsync(
+            secondArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: "2.0", supersedes: first.Value);
+
+        Assert.IsTrue(second.Success);
+        Assert.IsTrue(File.Exists(Path.Combine(layout.DisabledModsFolderPath, "My Mod", "Main.package")));
+        Assert.IsFalse(File.Exists(Path.Combine(modsFolderPath, "My Mod", "Main.package")));
+        Assert.AreEqual("My Mod/Main.package", second.Value!.Files.Single().RelativePath);
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_WhenReinstallingOverAnExistingPathWithoutSupersede_ThenPreservesGroupMembership()
+    {
+        var manifestService = new ModsManifestService();
+        var service = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
+
+        string firstArchive = CreateZip(("Main.package", "a"));
+        await service.InstallAsync(
+            firstArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: null);
+
+        ModsManifest manifestBeforeReinstall = await manifestService.LoadAsync(layout, CancellationToken.None);
+        ManifestFileEntry entry = manifestBeforeReinstall.Files.Single(entry => entry.RelativePath == "My Mod/Main.package");
+        await manifestService.SaveAsync(
+            layout,
+            manifestBeforeReinstall with { Files = [entry with { GroupId = "group-1" }] },
+            CancellationToken.None);
+
+        Directory.Delete(Path.Combine(modsFolderPath, "My Mod"), recursive: true);
+        string secondArchive = CreateZip(("Main.package", "a"));
+        await service.InstallAsync(
+            secondArchive, new HashSet<string> { "Main.package" }, layout, "My Mod", category: null, new InstallSource("manual", null, null), version: null);
+
+        ModsManifest manifestAfterReinstall = await manifestService.LoadAsync(layout, CancellationToken.None);
+        Assert.AreEqual("group-1", manifestAfterReinstall.Files.Single(entry => entry.RelativePath == "My Mod/Main.package").GroupId);
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_WhenSourceModPageUrlMatchesARegisteredStrategy_ThenSetsTracking()
+    {
+        var strategy = new StubModSiteStrategy("sacrificialmods.com", [], resolveModKey: _ => new SiteModKey("ZombieApocalypseDownload"));
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([strategy]));
+
+        string archivePath = CreateZip(("Main.package", "a"));
+        ArchiveInstallResult<InstallRecord> result = await service.InstallAsync(
+            archivePath,
+            new HashSet<string> { "Main.package" },
+            layout,
+            "Zombie Apocalypse",
+            category: null,
+            new InstallSource("browser", "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", null),
+            version: "2.3.1");
+
+        Assert.IsTrue(result.Success);
+        UpdateTracking? tracking = result.Value!.Tracking;
+        Assert.IsNotNull(tracking);
+        Assert.AreEqual("sacrificialmods.com", tracking.SiteKey);
+        Assert.AreEqual("ZombieApocalypseDownload", tracking.SiteModKey);
+        Assert.AreEqual("2.3.1", tracking.BaselineVersion);
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_WhenSourceModPageUrlMatchesNoStrategy_ThenLeavesTrackingNull()
+    {
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
+
+        string archivePath = CreateZip(("Main.package", "a"));
+        ArchiveInstallResult<InstallRecord> result = await service.InstallAsync(
+            archivePath,
+            new HashSet<string> { "Main.package" },
+            layout,
+            "Some Mod",
+            category: null,
+            new InstallSource("browser", "https://example.com/mod", null),
+            version: null);
+
+        Assert.IsNull(result.Value!.Tracking);
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_WhenSuperseding_ThenCarriesForwardTheExistingTrackingRatherThanReResolvingIt()
+    {
+        var strategy = new StubModSiteStrategy("sacrificialmods.com", [], resolveModKey: _ => new SiteModKey("SomeOtherKey"));
+        var service = new ArchiveInstallService(new ModsManifestService(), new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([strategy]));
+
+        UpdateTracking originalTracking = new("sacrificialmods.com", "ZombieApocalypseDownload", "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", "2.3.1", null, DateTime.UtcNow);
+        string firstArchive = CreateZip(("Main.package", "a"));
+        ArchiveInstallResult<InstallRecord> first = await service.InstallAsync(
+            firstArchive, new HashSet<string> { "Main.package" }, layout, "Zombie Apocalypse", category: null, new InstallSource("browser", null, null), version: "2.3.1");
+        InstallRecord withTracking = first.Value! with { Tracking = originalTracking };
+
+        string secondArchive = CreateZip(("Main.package", "b"));
+        ArchiveInstallResult<InstallRecord> second = await service.InstallAsync(
+            secondArchive,
+            new HashSet<string> { "Main.package" },
+            layout,
+            "Zombie Apocalypse",
+            category: null,
+            new InstallSource("browser", "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", null),
+            version: "2.3.2",
+            supersedes: withTracking);
+
+        // Same tracking as before the update — not re-resolved against the strategy stub above,
+        // which would have returned "SomeOtherKey" had it been consulted.
+        Assert.AreEqual(originalTracking, second.Value!.Tracking);
     }
 
     private string CreateZip(params (string EntryName, string Content)[] entries)

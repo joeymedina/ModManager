@@ -7,6 +7,7 @@ namespace ModManager.Ui.ViewModels;
 public partial class MainViewModel : ViewModelBase
 {
     private readonly ModsPageViewModel _modsPage;
+    private readonly BrowsePageViewModel _browsePage;
 
     [ObservableProperty]
     private ViewModelBase _currentPage;
@@ -33,6 +34,7 @@ public partial class MainViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(settingsPage);
 
         _modsPage = modsPage;
+        _browsePage = browsePage;
 
         NavigationItems =
         [
@@ -46,6 +48,8 @@ public partial class MainViewModel : ViewModelBase
         CurrentPage = SelectedNavigationItem.Page;
 
         browsePage.InstallRequested += OnInstallRequested;
+        modsPage.OpenModPageRequested += OnOpenModPageRequested;
+        updatesPage.OpenModPageRequested += OnOpenModPageRequested;
 
         // The mods folder is remembered between launches, so show its contents without making the
         // user hunt for a Refresh button on every start.
@@ -55,7 +59,14 @@ public partial class MainViewModel : ViewModelBase
     private void OnInstallRequested(string filePath, Uri? sourceUri, Uri? modPageUri)
     {
         SelectedNavigationItem = NavigationItems[0];
-        _modsPage.BeginInstallFromFile(filePath, sourceUri, modPageUri);
+        _ = _modsPage.BeginInstallFromFile(filePath, sourceUri, modPageUri);
+    }
+
+    /// <summary>Switches to the Browse tab and opens the URL there, in a new browser tab.</summary>
+    private void OnOpenModPageRequested(Uri uri)
+    {
+        SelectedNavigationItem = NavigationItems[2];
+        _browsePage.OpenUrl(uri);
     }
 
     partial void OnSelectedNavigationItemChanged(NavigationItemViewModel? value)

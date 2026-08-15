@@ -94,4 +94,37 @@ public interface IModsFolderUseCase
     /// parse or uses an unsupported schema version.
     /// </summary>
     Task<ArchiveInstallResult<ModsManifest>> SaveManifestRawAsync(string modsFolderPath, string rawJson, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Renames an install's on-disk folder and rewrites every stored reference to its old path.
+    /// </summary>
+    Task<ArchiveInstallResult<InstallRecord>> RenameInstallFolderAsync(
+        string modsFolderPath,
+        string installId,
+        string desiredFolderName,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces an install record's <see cref="UpdateTracking"/> baseline.
+    /// </summary>
+    Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(
+        string modsFolderPath,
+        string installId,
+        UpdateTracking tracking,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Finds an existing tracked install matching the same site and mod key as <paramref name="hints"/>
+    /// resolves to.
+    /// </summary>
+    Task<TrackedMod?> FindMatchingTrackedInstallAsync(
+        string modsFolderPath,
+        ModKeyHints hints,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Best-effort live lookup of a mod's current version from its page, for prefilling the install
+    /// dialog's Version field.
+    /// </summary>
+    Task<string?> TryFetchCurrentVersionAsync(string modPageUrl, string displayName, CancellationToken cancellationToken = default);
 }
