@@ -110,6 +110,117 @@ public sealed class ModsFolderServiceTests
     }
 
     [TestMethod]
+    public async Task DeleteAsync_WhenTheDeletedFileWasAdopted_ThenPrunesItsManifestFileEntryAndInstallRecord()
+    {
+        CreateFile(modsFolderPath, "Real.package");
+        var service = new ModsFolderService();
+        await service.AdoptAsync(modsFolderPath, ["Real.package"], "My Mod", null, null, CancellationToken.None);
+
+        IReadOnlyList<ModFileFailure> failures = await service.DeleteAsync(modsFolderPath, ["Real.package"], CancellationToken.None);
+
+        Assert.IsEmpty(failures);
+        ModsManifest manifest = await service.LoadManifestAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsEmpty(manifest.Files);
+        Assert.IsEmpty(manifest.Installs);
+    }
+
+    [TestMethod]
+    public async Task DeleteAsync_WhenATrackedInstallsOnlyFileIsDeleted_ThenDropsTheInstallAndItsTracking()
+    {
+        CreateFile(modsFolderPath, "Tracked.package");
+        const string manifestJson = """
+            {
+              "SchemaVersion": 1,
+              "Files": [{ "RelativePath": "Tracked.package", "DisplayName": "Tracked Mod" }],
+              "Groups": [],
+              "Installs": [{
+                "InstallId": "install-1",
+                "Source": { "Provider": "manual", "ModPageUrl": "https://example.com/mod", "DownloadUrl": null },
+                "Version": "1.0",
+                "InstalledUtc": "2026-01-01T00:00:00Z",
+                "SourceArchivePath": null,
+                "Files": [{ "RelativePath": "Tracked.package", "Sha256": "abc", "SizeBytes": 1 }],
+                "SkippedEntries": [],
+                "Tracking": {
+                  "SiteKey": "sacrificial",
+                  "SiteModKey": "some-mod",
+                  "TrackingUrl": "https://example.com/mod",
+                  "BaselineVersion": "1.0",
+                  "BaselineUpdatedOnRaw": null,
+                  "BaselineCapturedUtc": "2026-01-01T00:00:00Z"
+                }
+              }]
+            }
+            """;
+        var service = new ModsFolderService();
+        await service.SaveManifestRawAsync(modsFolderPath, manifestJson, CancellationToken.None);
+
+        IReadOnlyList<ModFileFailure> failures = await service.DeleteAsync(modsFolderPath, ["Tracked.package"], CancellationToken.None);
+
+        Assert.IsEmpty(failures);
+        ModsManifest manifest = await service.LoadManifestAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsEmpty(manifest.Installs);
+    }
+
+    [TestMethod]
+    public async Task DeleteAsync_WhenOnlySomeOfATrackedInstallsFilesAreDeleted_ThenKeepsTheRecordTrimmedAndTracked()
+    {
+        CreateFile(modsFolderPath, "Keep.package");
+        CreateFile(modsFolderPath, "Remove.package");
+        const string manifestJson = """
+            {
+              "SchemaVersion": 1,
+              "Files": [],
+              "Groups": [],
+              "Installs": [{
+                "InstallId": "install-1",
+                "Source": { "Provider": "manual", "ModPageUrl": "https://example.com/mod", "DownloadUrl": null },
+                "Version": "1.0",
+                "InstalledUtc": "2026-01-01T00:00:00Z",
+                "SourceArchivePath": null,
+                "Files": [
+                  { "RelativePath": "Keep.package", "Sha256": "abc", "SizeBytes": 1 },
+                  { "RelativePath": "Remove.package", "Sha256": "def", "SizeBytes": 1 }
+                ],
+                "SkippedEntries": [],
+                "Tracking": {
+                  "SiteKey": "sacrificial",
+                  "SiteModKey": "some-mod",
+                  "TrackingUrl": "https://example.com/mod",
+                  "BaselineVersion": "1.0",
+                  "BaselineUpdatedOnRaw": null,
+                  "BaselineCapturedUtc": "2026-01-01T00:00:00Z"
+                }
+              }]
+            }
+            """;
+        var service = new ModsFolderService();
+        await service.SaveManifestRawAsync(modsFolderPath, manifestJson, CancellationToken.None);
+
+        IReadOnlyList<ModFileFailure> failures = await service.DeleteAsync(modsFolderPath, ["Remove.package"], CancellationToken.None);
+
+        Assert.IsEmpty(failures);
+        ModsManifest manifest = await service.LoadManifestAsync(modsFolderPath, CancellationToken.None);
+        InstallRecord record = manifest.Installs.Single();
+        Assert.AreEqual("Keep.package", record.Files.Single().RelativePath);
+        Assert.IsNotNull(record.Tracking);
+    }
+
+    [TestMethod]
+    public async Task DeleteAsync_WhenALastRemainingGroupMemberIsDeleted_ThenDropsTheEmptyGroup()
+    {
+        CreateFile(modsFolderPath, "Grouped.package");
+        var service = new ModsFolderService();
+        await service.AdoptAsync(modsFolderPath, ["Grouped.package"], "My Mod", null, null, CancellationToken.None);
+        await service.AddToGroupAsync(modsFolderPath, ["Grouped.package"], "My Group", CancellationToken.None);
+
+        await service.DeleteAsync(modsFolderPath, ["Grouped.package"], CancellationToken.None);
+
+        ModsManifest manifest = await service.LoadManifestAsync(modsFolderPath, CancellationToken.None);
+        Assert.IsEmpty(manifest.Groups);
+    }
+
+    [TestMethod]
     public async Task AdoptAsync_WhenFilesExist_ThenRecordsWithoutMovingAnything()
     {
         CreateFile(modsFolderPath, "Loose.package");

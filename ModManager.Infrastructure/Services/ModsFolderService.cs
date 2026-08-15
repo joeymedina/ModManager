@@ -134,7 +134,9 @@ public sealed class ModsFolderService : IModsFolderRepository
 
     /// <summary>
     /// Deletes the given files from active and/or disabled folders. A conflicted path is removed
-    /// from both.
+    /// from both. Every successfully deleted path is also pruned from the manifest — its file entry,
+    /// and its place in any install record and group — so a deleted mod doesn't linger as a phantom
+    /// entry (see <see cref="PruneManifestAsync"/>).
     /// </summary>
     public async Task<IReadOnlyList<ModFileFailure>> DeleteAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, CancellationToken cancellationToken = default)
     {
@@ -150,7 +152,53 @@ public sealed class ModsFolderService : IModsFolderRepository
 
         IReadOnlyList<ModFileFailure> deleteFailures = await _fileOperationsService.DeleteFilesAsync(matched, layout, cancellationToken);
         failures.AddRange(deleteFailures);
+
+        HashSet<string> failedPaths = new(deleteFailures.Select(failure => failure.RelativePath), StringComparer.OrdinalIgnoreCase);
+        List<string> deletedPaths = [.. matched.Select(file => file.RelativePath).Where(path => !failedPaths.Contains(path))];
+        if (deletedPaths.Count > 0)
+        {
+            await PruneManifestAsync(layout, deletedPaths, cancellationToken);
+        }
+
         return failures;
+    }
+
+    /// <summary>
+    /// Removes every manifest trace of files actually deleted from disk: the file entry (display
+    /// name/group/notes/category), membership in any group, and the file's place in any install
+    /// record. A record that loses every one of its files is dropped entirely, <see cref="UpdateTracking"/>
+    /// included — otherwise a deleted mod's tracking lingered forever and the Updates page kept
+    /// reporting on a mod that no longer exists on disk. A record that keeps some files is trimmed to
+    /// just those and stays tracked, since the mod is still partially installed.
+    /// </summary>
+    private async Task PruneManifestAsync(ModsFolderLayout layout, IReadOnlyList<string> deletedPaths, CancellationToken cancellationToken)
+    {
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+        HashSet<string> deleted = new(deletedPaths, StringComparer.OrdinalIgnoreCase);
+
+        List<ManifestFileEntry> files = [.. manifest.Files.Where(entry => !deleted.Contains(entry.RelativePath))];
+
+        List<ModGroup> groups = [];
+        foreach (ModGroup group in manifest.Groups)
+        {
+            List<string> remainingMembers = [.. group.Members.Where(member => !deleted.Contains(member))];
+            if (remainingMembers.Count > 0)
+            {
+                groups.Add(remainingMembers.Count == group.Members.Count ? group : group with { Members = remainingMembers });
+            }
+        }
+
+        List<InstallRecord> installs = [];
+        foreach (InstallRecord record in manifest.Installs)
+        {
+            List<InstallRecordFile> remainingFiles = [.. record.Files.Where(file => !deleted.Contains(file.RelativePath))];
+            if (remainingFiles.Count > 0)
+            {
+                installs.Add(remainingFiles.Count == record.Files.Count ? record : record with { Files = remainingFiles });
+            }
+        }
+
+        await _manifestService.SaveAsync(layout, manifest with { Files = files, Groups = groups, Installs = installs }, cancellationToken);
     }
 
     private async Task<IReadOnlyList<ModFileFailure>> ChangeStateAsync(string modsFolderPath, IReadOnlyList<string> relativePaths, ModFileState targetState, CancellationToken cancellationToken)
