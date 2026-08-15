@@ -124,4 +124,23 @@ public interface IModsFolderRepository
         string installId,
         UpdateTracking tracking,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Finds an existing tracked install matching the same site and mod key as <paramref name="hints"/>
+    /// resolves to — the collision check behind "this looks like an update to a mod you already have."
+    /// Null when the hints don't resolve to a registered strategy's site, or that strategy can't
+    /// resolve a mod key from them.
+    /// </summary>
+    Task<TrackedMod?> FindMatchingTrackedInstallAsync(
+        string modsFolderPath,
+        ModKeyHints hints,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Best-effort live lookup of a mod's current version from its page, for prefilling the install
+    /// dialog's Version field. Null on anything that isn't a clean success — no matching strategy, no
+    /// resolvable key, a timeout, or a fetch failure — since this is a convenience, not a step the
+    /// install flow depends on.
+    /// </summary>
+    Task<string?> TryFetchCurrentVersionAsync(string modPageUrl, string displayName, CancellationToken cancellationToken = default);
 }

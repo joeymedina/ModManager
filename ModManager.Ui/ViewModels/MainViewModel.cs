@@ -59,7 +59,7 @@ public partial class MainViewModel : ViewModelBase
     private void OnInstallRequested(string filePath, Uri? sourceUri, Uri? modPageUri)
     {
         SelectedNavigationItem = NavigationItems[0];
-        _modsPage.BeginInstallFromFile(filePath, sourceUri, modPageUri);
+        _ = _modsPage.BeginInstallFromFile(filePath, sourceUri, modPageUri);
     }
 
     /// <summary>Switches to the Browse tab and opens the URL there, in a new browser tab.</summary>

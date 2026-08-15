@@ -100,7 +100,12 @@ internal sealed class WickedWhimsUpdateStrategy(
     /// Deletes any file the previous install wrote that the new one didn't, via the shared
     /// <see cref="ModsFileOperationsService.DeleteStalePathsAsync"/> — path containment, skip-on-escape,
     /// and empty-directory cleanup all live there now so a future site-based update strategy gets the
-    /// same safety without reimplementing it.
+    /// same safety without reimplementing it. Unlike that shared helper's other callers, a deletion
+    /// failure here aborts the update instead of continuing: this strategy replaces
+    /// <paramref name="previousRecord"/> outright (see <see cref="SaveRecordAsync"/>), so a stale file
+    /// left behind because it was locked would lose its only manifest reference and never be retried.
+    /// Throwing here keeps the previous record intact, the same way it already was before this method
+    /// was written in terms of a shared, skip-and-continue helper.
     /// </summary>
     private async Task DeleteStaleFilesAsync(string installRoot, InstallRecord? previousRecord, IReadOnlyList<InstallRecordFile> newFiles, CancellationToken cancellationToken)
     {
@@ -113,9 +118,15 @@ internal sealed class WickedWhimsUpdateStrategy(
         List<string> stalePaths = [.. previousRecord.Files.Select(file => file.RelativePath).Where(path => !newPaths.Contains(path))];
 
         IReadOnlyList<ModFileFailure> failures = await fileOperationsService.DeleteStalePathsAsync(installRoot, stalePaths, cancellationToken);
-        foreach (ModFileFailure failure in failures)
+        if (failures.Count > 0)
         {
-            _logger.LogWarning("Could not delete stale WickedWhims file {RelativePath} from install {InstallId}: {Reason}", failure.RelativePath, previousRecord.InstallId, failure.Reason);
+            foreach (ModFileFailure failure in failures)
+            {
+                _logger.LogWarning("Could not delete stale WickedWhims file {RelativePath} from install {InstallId}: {Reason}", failure.RelativePath, previousRecord.InstallId, failure.Reason);
+            }
+
+            throw new InvalidOperationException(
+                $"Could not remove {failures.Count} outdated file(s) from the previous WickedWhims install — check that they aren't open in another program and try again.");
         }
     }
 

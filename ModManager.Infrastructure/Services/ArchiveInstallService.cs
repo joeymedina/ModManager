@@ -15,6 +15,7 @@ namespace ModManager.Infrastructure.Services;
 public sealed class ArchiveInstallService(
     ModsManifestService manifestService,
     ModsFileOperationsService fileOperationsService,
+    SiteTrackingResolver siteTrackingResolver,
     ILogger<ArchiveInstallService>? logger = null) : IArchiveInstallService
 {
     private static readonly HashSet<string> ModExtensions = new(StringComparer.OrdinalIgnoreCase) { ".package", ".ts4script" };
@@ -115,8 +116,8 @@ public sealed class ArchiveInstallService(
                 return bareFileResult;
             }
 
-            await FinishInstallAsync(layout, installRoot, displayName, category, bareFileResult.Value!, supersedes, cancellationToken);
-            return bareFileResult;
+            InstallRecord finishedBareRecord = await FinishInstallAsync(layout, installRoot, displayName, category, bareFileResult.Value!, supersedes, cancellationToken);
+            return ArchiveInstallResult<InstallRecord>.Ok(finishedBareRecord);
         }
 
         if (!extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
@@ -142,7 +143,7 @@ public sealed class ArchiveInstallService(
             return ArchiveInstallResult<InstallRecord>.Fail(ex.Message);
         }
 
-        await FinishInstallAsync(layout, installRoot, displayName, category, record, supersedes, cancellationToken);
+        record = await FinishInstallAsync(layout, installRoot, displayName, category, record, supersedes, cancellationToken);
         _logger.LogInformation(
             "Installed \"{DisplayName}\" as install {InstallId}: {InstalledCount} file(s) into {TargetRoot}, {SkippedCount} skipped",
             displayName,
@@ -270,9 +271,12 @@ public sealed class ArchiveInstallService(
 
     /// <summary>
     /// When superseding, this install's target folder is the previous record's own folder rather than
-    /// a freshly minted one — the first path segment every one of a record's files shares, since a
-    /// zip extracts flat into one target folder and a bare file lands directly in one too. Returns
-    /// <see langword="null"/> for a fresh install or a record with no files to derive a folder from.
+    /// a freshly minted one — the top-level path segment every one of a record's files shares, since a
+    /// zip extracts flat into one target folder and a bare file installed through this app lands
+    /// directly in one too. Returns <see langword="null"/> for a fresh install, a record with no files
+    /// to derive a folder from, or a record whose files sit directly at the mods-folder root with no
+    /// folder at all (a loose file that was adopted rather than installed by this app) — the caller
+    /// then mints a fresh deduped folder instead of mistaking the bare filename for a folder to reuse.
     /// </summary>
     private static string? ResolveSupersededModFolder(string installRoot, InstallRecord? supersedes)
     {
@@ -281,16 +285,18 @@ public sealed class ArchiveInstallService(
             return null;
         }
 
-        string firstSegment = supersedes.Files[0].RelativePath.Split('/', 2)[0];
-        return string.IsNullOrWhiteSpace(firstSegment) ? null : Path.Combine(installRoot, firstSegment);
+        string? topLevelFolder = ModsFolderPathService.TryGetTopLevelFolder(supersedes.Files[0].RelativePath);
+        return topLevelFolder is null ? null : Path.Combine(installRoot, topLevelFolder);
     }
 
     /// <summary>
-    /// Prunes files the superseded record wrote that this install doesn't, then persists. Pruning
-    /// happens before the manifest write so a failure here leaves the previous record intact rather
-    /// than pointing at files that were already deleted.
+    /// Prunes files the superseded record wrote that this install doesn't, resolves update tracking,
+    /// then persists. Pruning happens before the manifest write so a failure here leaves the previous
+    /// record intact rather than pointing at files that were already deleted. Returns the record as
+    /// actually persisted (with <see cref="InstallRecord.Tracking"/> set), since the caller's own copy
+    /// predates that.
     /// </summary>
-    private async Task FinishInstallAsync(
+    private async Task<InstallRecord> FinishInstallAsync(
         ModsFolderLayout layout,
         string installRoot,
         string displayName,
@@ -315,7 +321,19 @@ public sealed class ArchiveInstallService(
             }
         }
 
-        await PersistRecordAsync(layout, displayName, category, record, supersedes, cancellationToken);
+        // An update carries its tracking forward unchanged — it's the trusted, previously-resolved
+        // state, and re-resolving could only downgrade it (e.g. re-derive from a URL that's since
+        // gone stale). A first-time install has nothing to carry forward, so it resolves fresh from
+        // whatever mod page URL this install's own Source carries — the same resolution AdoptAsync
+        // already does, just triggered from InstallAsync's own source instead of a pasted one.
+        InstallRecord trackedRecord = record with
+        {
+            Tracking = supersedes?.Tracking
+                ?? siteTrackingResolver.ResolveTracking(record.Source.ModPageUrl, record.Version, displayName, [.. record.Files.Select(file => file.RelativePath)])
+        };
+
+        await PersistRecordAsync(layout, displayName, category, trackedRecord, supersedes, cancellationToken);
+        return trackedRecord;
     }
 
     /// <summary>
@@ -331,7 +349,7 @@ public sealed class ArchiveInstallService(
     {
         ModsManifest manifest = await manifestService.LoadAsync(layout, cancellationToken);
 
-        HashSet<string> installedPaths = [.. record.Files.Select(file => file.RelativePath)];
+        HashSet<string> installedPaths = new(record.Files.Select(file => file.RelativePath), StringComparer.OrdinalIgnoreCase);
         HashSet<string> stalePaths = supersedes is null
             ? []
             : new HashSet<string>(supersedes.Files.Select(file => file.RelativePath).Where(path => !installedPaths.Contains(path)), StringComparer.OrdinalIgnoreCase);

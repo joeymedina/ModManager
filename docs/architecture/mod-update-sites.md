@@ -2,12 +2,17 @@
 
 ## Status
 
-**In progress, functionally end-to-end for Sacrificial.** The shared file-operation groundwork, the
-site-strategy base spine, `SacrificialSiteStrategy`, and the Updates page are implemented and tested
-(see [Implementation status](#implementation-status)). The gap that remains: a *fresh* install doesn't
-get tracking set automatically yet, only adoption does — so today's path is install, then adopt to
-link it to a site. Sections below describe both what shipped and what's still a decision to confirm,
-distinguished where it matters.
+**Implemented and tested end-to-end for Sacrificial** — adoption, a fresh install, and supersede
+detection all resolve and record tracking; the legacy folder rename and both install-flow prompts are
+wired in; the install and adopt dialogs both expose editable version/mod-page-URL fields. See
+[Implementation status](#implementation-status) for the full per-piece breakdown. Nothing has been
+verified in the running app yet — every piece below is proven at the unit/service-test level only.
+Sections below describe both what shipped and what's still a decision to confirm, distinguished where
+it matters.
+
+Adding the next site strategy (ModTheSims, CurseForge, Patreon, NexusMods, TheSimsResource, …)? See
+[adding-a-site-strategy.md](./adding-a-site-strategy.md) for the repeatable checklist — this document
+is the design those pieces implement, that one is the procedure for extending it.
 
 ## Context
 
@@ -501,6 +506,13 @@ boundary, real IO in a temp sandbox at the infrastructure boundary.
 - The legacy folder rename: paths rewritten across record/manifest entries/group members, a failed
   manifest save rolls the move back, a name collision falls back to the dedup loop, and a mod split
   across both roots renames in both. Declining the prompt updates in place and does not ask again.
+- `SiteTrackingResolver.TryFetchCurrentVersionAsync`: happy path, no URL, no matching strategy, no
+  resolvable key, the strategy throwing, and a hung fetch past an injected (not the real 10s) timeout
+  — plus a caller-cancellation test proving that propagates rather than being swallowed as a timeout,
+  mirroring `ModSiteUpdateServiceTests`'s equivalent case for the same reason.
+- The install-dialog prefill wiring at the `ModsPageViewModel` level: a resolved URL fills Version
+  when it was empty, a version the user already typed (or that survived a re-preview mid-session)
+  is never overwritten, and no fetch is attempted at all when there's no URL to resolve.
 - `ServiceRegistrationTests` updated for the new registrations, or the DI-graph test fails.
 
 ## Implementation status
@@ -511,29 +523,54 @@ What exists today, against the plan above:
 | --- | --- | --- |
 | Shared stale-path prune, reused by WickedWhims and by supersede | Done | [ModsFileOperationsService.DeleteStalePathsAsync](../../ModManager.Infrastructure/Services/ModsFileOperationsService.cs) |
 | `InstallAsync` supersede path (replace record, extract into existing root, prune, carry-forward metadata) | Done | [ArchiveInstallService.cs](../../ModManager.Infrastructure/Services/ArchiveInstallService.cs) |
-| Legacy folder rename (unwired — see below) | Done, not yet triggered by any UI | [ModsFolderService.RenameInstallFolderAsync](../../ModManager.Infrastructure/Services/ModsFolderService.cs) |
+| Legacy folder rename | Done, wired to the install flow's rename prompt | [ModsFolderService.RenameInstallFolderAsync](../../ModManager.Infrastructure/Services/ModsFolderService.cs) |
 | Base spine — `IModSiteStrategy`, `IModSiteUpdateService`, comparison policy, error containment, check-state persistence | Done, tested against a fake strategy | [ModSiteUpdateService.cs](../../ModManager.Application/Services/ModSiteUpdateService.cs) |
 | `SacrificialSiteStrategy` + `HttpModPageFetcher` | Done, tested against real captured markup | [SacrificialSiteStrategy.cs](../../ModManager.Infrastructure/Services/Sacrificial/SacrificialSiteStrategy.cs) |
-| Adoption sets tracking automatically from the pasted mod page URL | Done | [ModsFolderService.ResolveTracking](../../ModManager.Infrastructure/Services/ModsFolderService.cs) |
+| `SiteTrackingResolver` — host→strategy matching and mod-key resolution, shared by every write path | Done | [SiteTrackingResolver.cs](../../ModManager.Infrastructure/Services/SiteTrackingResolver.cs) |
+| Adoption sets tracking automatically from the pasted mod page URL | Done | [ModsFolderService.AdoptAsync](../../ModManager.Infrastructure/Services/ModsFolderService.cs) |
 | `AdoptAsync` supersedes an overlapping prior record instead of duplicating it — re-adopting is the supported way to fix a typo'd URL/version | Done | [ModsFolderService.AdoptAsync](../../ModManager.Infrastructure/Services/ModsFolderService.cs) |
+| A *fresh* browser/file install sets tracking too, from its own `InstallSource.ModPageUrl` | Done | [ArchiveInstallService.FinishInstallAsync](../../ModManager.Infrastructure/Services/ArchiveInstallService.cs) |
 | `UpdateInstallTrackingAsync` (rewrite a record's baseline — backs both "mark as current" and adoption) | Done | [ModsFolderService.cs](../../ModManager.Infrastructure/Services/ModsFolderService.cs) |
+| `FindMatchingTrackedInstallAsync` (site+mod-key collision lookup behind the supersede prompt) | Done | [ModsFolderService.cs](../../ModManager.Infrastructure/Services/ModsFolderService.cs) |
+| Supersede prompt + legacy-folder-rename prompt, wired into the install flow | Done | [ModsPageViewModel.ConfirmInstallAsync](../../ModManager.Ui/ViewModels/ModsPageViewModel.cs) |
 | Updates page — list, manual check, open mod page, mark as current | Done | [UpdatesPageViewModel.cs](../../ModManager.Ui/ViewModels/UpdatesPageViewModel.cs) |
-| Install-dialog version/URL fields for a *fresh* browser/file install | Not started — see below | — |
-| Supersede prompt and legacy-folder-rename prompt wiring | Not started — see below | — |
+| Install-dialog version/URL fields for a user to *edit* what a fresh install resolved | Done | [InstallDialogContent.axaml](../../ModManager.Ui/Views/Dialogs/InstallDialogContent.axaml) |
+| Live version prefill — the moment the mod page URL resolves, fetches the site's current version into the (still-editable) Version field | Done | [SiteTrackingResolver.TryFetchCurrentVersionAsync](../../ModManager.Infrastructure/Services/SiteTrackingResolver.cs) |
 
-Three things worth flagging precisely because they're easy to lose track of once code exists:
+Everything from the original plan is now built and tested, including the "prefilled from the site"
+behavior the design always wanted for adoption and now has for a fresh install too. A fresh install's
+`ModPageUrl` prefills from whatever a browser download captured (address-bar-at-interception, so
+frequently the wrong page — a listing or search page rather than the mod's own), shown in an editable
+field with a note to check it before confirming. The moment that URL resolves to a registered
+strategy, `PreviewInstallAsync` fires a best-effort live fetch and prefills Version from it — skipped
+entirely if the field already holds something (typed, or surviving from a prior preview in the same
+dialog session), so it enhances rather than overrides. A failed or timed-out fetch (10s default,
+injectable) just leaves the field as it was; nothing in the install flow can block or error because of
+it. Both fields feed the same `InstallSource` that `ArchiveInstallService` resolves `Tracking` from, so
+a corrected URL changes what gets tracked, not just what's displayed. Detect-only remains true
+throughout — supersede only ever fires from a manual reinstall the user initiates, never automatically.
 
-- **A fresh install doesn't get tracking yet — only adoption does.** `ArchiveInstallService.InstallAsync`
-  (the path a browser download or "Install from file" takes) still calls with `version: null` and never
-  touches `Tracking`. `ModsFolderService.AdoptAsync` — the path for a file *already on disk* — resolves
-  it automatically from the pasted mod page URL. In practice this means: install a mod normally, then
-  use Adopt (or re-adopt) to link it to its site; a first-class version/URL field on the install dialog
-  itself is the natural next increment, and would want the same `ResolveTracking` logic, currently
-  private to `ModsFolderService`, pulled somewhere `ArchiveInstallService` can reach too.
-- **Supersede and the folder rename are real, tested capabilities with no caller.** `ModsPageViewModel`
-  never invokes either — they were built as the filesystem-safety groundwork the install flow will need
-  once it starts detecting "this looks like an update to a mod I already have," not because anything
-  currently triggers them.
+This closes the gap that made a fresh install materially weaker than adoption: without a prefetched
+version, `Tracking.BaselineVersion` stayed null and the very first check after installing could only
+ever report `Indeterminate` (no version *and* no date to compare against — see
+[Comparison semantics](#comparison-semantics)), pushing the user through an install → check → mark-as-
+current dance just to get a working baseline. With the fetch, a fresh install of an already-known mod
+gets a real, comparable baseline with no user action beyond confirming the install.
+
+How supersede detection actually resolves, end to end: `ConfirmInstallAsync` builds `ModKeyHints` from
+the pending install's captured `ModPageUrl`, calls `FindMatchingTrackedInstallAsync`, and if a site+key
+match is found, prompts "this looks like an update to X — update it instead of installing separately?"
+Confirming checks whether the matched record's on-disk folder name still differs from its manifest
+display name (the version-stamped-folder problem this document describes) and, if so, prompts
+separately to rename it before the update writes into it. Declining either prompt falls back to the
+prior behavior at that point — a normal fresh install, or an update that keeps its old folder name.
+
+Two things worth flagging precisely because they're easy to lose track of once code exists:
+
+- **`SiteTrackingResolver` is new versus the original type list**, extracted once the same
+  host-matching-and-key-resolution logic was needed by three call sites (`AdoptAsync`,
+  `ArchiveInstallService.InstallAsync`, and `FindMatchingTrackedInstallAsync`) rather than duplicated
+  across them.
 - **`TrackedMod` was added beyond this document's original type list.** `InstallRecord` carries no
   display name (that lives on the manifest's `ManifestFileEntry` rows), so `IModSiteUpdateService.CheckAsync`
   needed a small wrapper pairing a record with the display name needed to build `ModKeyHints`. See

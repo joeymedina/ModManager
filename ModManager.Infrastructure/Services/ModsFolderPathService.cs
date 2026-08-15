@@ -107,4 +107,18 @@ public sealed class ModsFolderPathService
         string sanitized = new([.. desiredName.Trim().Where(c => !invalidChars.Contains(c))]);
         return sanitized.Length == 0 ? "Mod" : sanitized;
     }
+
+    /// <summary>
+    /// The top-level folder segment of a root-relative path, or null when the path has no folder —
+    /// sits directly at the root (a loose file adopted rather than ever installed through this app's
+    /// own folder-per-mod flow). Callers that need "does this record's install have a folder to reuse
+    /// or rename" must check for null rather than assuming every <c>RelativePath</c> contains a '/' —
+    /// treating the whole filename as a folder name for a root-level file is what caused this to be
+    /// worth centralizing here instead of leaving each caller to restate <c>Split('/', 2)[0]</c>.
+    /// </summary>
+    public static string? TryGetTopLevelFolder(string relativePath)
+    {
+        int separatorIndex = relativePath.IndexOf('/');
+        return separatorIndex < 0 ? null : relativePath[..separatorIndex];
+    }
 }

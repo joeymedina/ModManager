@@ -14,7 +14,7 @@ public sealed class ModsFolderService : IModsFolderRepository
     private readonly ModsDiscoveryService _discoveryService;
     private readonly ModsFileOperationsService _fileOperationsService;
     private readonly ModsManifestService _manifestService;
-    private readonly IReadOnlyList<IModSiteStrategy> _siteStrategies;
+    private readonly SiteTrackingResolver _siteTrackingResolver;
     private readonly ILogger<ModsFolderService> _logger;
 
     public ModsFolderService():
@@ -23,7 +23,7 @@ public sealed class ModsFolderService : IModsFolderRepository
             new ModsDiscoveryService(),
             new ModsFileOperationsService(new ModsFolderPathService()),
             new ModsManifestService(),
-            [])
+            new SiteTrackingResolver([]))
     {
     }
 
@@ -32,14 +32,14 @@ public sealed class ModsFolderService : IModsFolderRepository
         ModsDiscoveryService discoveryService,
         ModsFileOperationsService fileOperationsService,
         ModsManifestService manifestService,
-        IEnumerable<IModSiteStrategy>? siteStrategies = null,
+        SiteTrackingResolver siteTrackingResolver,
         ILogger<ModsFolderService>? logger = null)
     {
         _pathService = pathService;
         _discoveryService = discoveryService;
         _fileOperationsService = fileOperationsService;
         _manifestService = manifestService;
-        _siteStrategies = [.. siteStrategies ?? []];
+        _siteTrackingResolver = siteTrackingResolver;
         _logger = logger ?? NullLogger<ModsFolderService>.Instance;
     }
 
@@ -231,7 +231,7 @@ public sealed class ModsFolderService : IModsFolderRepository
             null,
             files,
             [],
-            ResolveTracking(modPageUrl, version, displayName, files));
+            _siteTrackingResolver.ResolveTracking(modPageUrl, version, displayName, [.. files.Select(file => file.RelativePath)]));
 
         ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
         HashSet<string> adoptedPaths = [.. files.Select(file => file.RelativePath)];
@@ -281,36 +281,6 @@ public sealed class ModsFolderService : IModsFolderRepository
             version ?? "unspecified");
 
         return ArchiveInstallResult<InstallRecord>.Ok(record);
-    }
-
-    /// <summary>
-    /// Builds the update-tracking baseline for a freshly adopted record. Adoption's existing "mod
-    /// page" field doubles as the tracking URL — no separate "link to a site" action is needed. Only
-    /// set when a registered strategy's <see cref="IModSiteStrategy.Hosts"/> actually matches the URL:
-    /// a user can paste a mod page from any site during adoption, most of which this app has no
-    /// strategy for, and tracking one anyway would leave a permanently-`Indeterminate` "no strategy
-    /// registered" row cluttering the Updates page for a site that was never checkable to begin with.
-    /// The matched strategy's canonical <see cref="IModSiteStrategy.SiteKey"/> is used (so
-    /// <c>www.</c> and bare-domain variants land on the same key), and its mod key is resolved
-    /// immediately if possible — left unresolved, to retry on the next check, otherwise.
-    /// </summary>
-    private UpdateTracking? ResolveTracking(string? modPageUrl, string? version, string displayName, IReadOnlyList<InstallRecordFile> files)
-    {
-        if (string.IsNullOrWhiteSpace(modPageUrl) || !Uri.TryCreate(modPageUrl, UriKind.Absolute, out Uri? uri))
-        {
-            return null;
-        }
-
-        IModSiteStrategy? strategy = _siteStrategies.FirstOrDefault(
-            candidate => candidate.Hosts.Any(host => string.Equals(host, uri.Host, StringComparison.OrdinalIgnoreCase)));
-
-        if (strategy is null)
-        {
-            return null;
-        }
-
-        SiteModKey? resolvedKey = strategy.TryResolveModKey(new ModKeyHints(modPageUrl, null, displayName, [.. files.Select(file => file.RelativePath)]));
-        return new UpdateTracking(strategy.SiteKey, resolvedKey?.Value, modPageUrl, version, null, DateTime.UtcNow);
     }
 
     /// <summary>
@@ -551,7 +521,12 @@ public sealed class ModsFolderService : IModsFolderRepository
             return ArchiveInstallResult<InstallRecord>.Fail("Could not find that install.");
         }
 
-        string oldFolderName = record.Files[0].RelativePath.Split('/', 2)[0];
+        string? oldFolderName = ModsFolderPathService.TryGetTopLevelFolder(record.Files[0].RelativePath);
+        if (oldFolderName is null)
+        {
+            _logger.LogWarning("Rename abandoned: install {InstallId} has no folder to rename (its files sit directly at the mods root)", installId);
+            return ArchiveInstallResult<InstallRecord>.Fail("This mod isn't in its own folder, so there's nothing to rename.");
+        }
 
         // Checked before deduping: the mod's own current folder is not a "collision" to dedupe
         // against, since a rename to the name it already has is a no-op, not a move onto itself.
@@ -646,6 +621,60 @@ public sealed class ModsFolderService : IModsFolderRepository
 
         _logger.LogInformation("Updated tracking for install {InstallId}: site {SiteKey}, mod key {SiteModKey}", installId, tracking.SiteKey, tracking.SiteModKey ?? "(unresolved)");
         return ArchiveInstallResult<InstallRecord>.Ok(updated);
+    }
+
+    /// <summary>
+    /// Finds an existing tracked install that <paramref name="hints"/> resolves to the same
+    /// <c>(SiteKey, SiteModKey)</c> as — the collision check behind the install flow's "this looks
+    /// like an update" prompt. Detection keys on the mod key rather than the folder name deliberately:
+    /// an install's folder is often version-stamped (<c>SAC_Zombie Apocalypse v2.3.1/</c>), so
+    /// consecutive versions never collide on name even though they're the same mod. Null when the URL
+    /// doesn't match a registered strategy or the strategy can't resolve a key from it — a "maybe, but
+    /// we can't tell" case is treated the same as "no match" here, since guessing would risk offering
+    /// to overwrite the wrong mod.
+    /// </summary>
+    public async Task<TrackedMod?> FindMatchingTrackedInstallAsync(string modsFolderPath, ModKeyHints hints, CancellationToken cancellationToken = default)
+    {
+        (IModSiteStrategy Strategy, SiteModKey? ResolvedKey)? match = _siteTrackingResolver.TryMatchStrategy(hints.ModPageUrl, hints);
+        if (match is not { ResolvedKey: not null })
+        {
+            return null;
+        }
+
+        ModsFolderLayout layout = _pathService.GetLayout(modsFolderPath);
+        ModsManifest manifest = await _manifestService.LoadAsync(layout, cancellationToken);
+
+        InstallRecord? record = manifest.Installs.FirstOrDefault(candidate =>
+            candidate.Tracking is { } tracking
+            && string.Equals(tracking.SiteKey, match.Value.Strategy.SiteKey, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(tracking.SiteModKey, match.Value.ResolvedKey!.Value, StringComparison.OrdinalIgnoreCase));
+
+        return record is null ? null : new TrackedMod(record, ResolveDisplayName(record, manifest));
+    }
+
+    /// <summary>
+    /// Best-effort live lookup of a mod's current version. See
+    /// <see cref="IModsFolderRepository.TryFetchCurrentVersionAsync"/>.
+    /// </summary>
+    public Task<string?> TryFetchCurrentVersionAsync(string modPageUrl, string displayName, CancellationToken cancellationToken = default) =>
+        _siteTrackingResolver.TryFetchCurrentVersionAsync(modPageUrl, displayName, cancellationToken);
+
+    /// <summary>
+    /// Every file an install wrote shares the same manifest-recorded display name (see
+    /// <see cref="AdoptAsync"/> and <c>ArchiveInstallService.PersistRecordAsync</c>), so the first
+    /// file's entry is enough. Falls back to the install's folder name for a record with no manifest
+    /// entry at all (hand-edited manifest, or a path that no longer resolves).
+    /// </summary>
+    private static string ResolveDisplayName(InstallRecord record, ModsManifest manifest)
+    {
+        if (record.Files.Count == 0)
+        {
+            return "(unknown mod)";
+        }
+
+        string firstPath = record.Files[0].RelativePath;
+        ManifestFileEntry? entry = manifest.Files.FirstOrDefault(file => string.Equals(file.RelativePath, firstPath, StringComparison.OrdinalIgnoreCase));
+        return entry?.DisplayName is { Length: > 0 } displayName ? displayName : firstPath.Split('/', 2)[0];
     }
 
     private static string RewritePrefix(string relativePath, string oldPrefix, string newPrefix) =>

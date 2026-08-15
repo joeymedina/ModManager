@@ -37,6 +37,7 @@ public partial class ModsPageViewModel : ViewModelBase
     private Uri? _pendingInstallSourceUri;
     private Uri? _pendingInstallModPageUri;
     private string _previewedPath = string.Empty;
+    private CancellationTokenSource? _versionFetchCts;
 
     public ObservableCollection<ModFileViewModel> Files { get; } = [];
 
@@ -108,6 +109,19 @@ public partial class ModsPageViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _installCategoryInput = string.Empty;
+
+    [ObservableProperty]
+    private string _installVersionInput = string.Empty;
+
+    /// <summary>
+    /// Editable mirror of the mod page URL a browser download captured (see
+    /// <see cref="BeginInstallFromFile"/>) — shown so the user can see, correct, or add one before
+    /// install resolves <see cref="InstallRecord.Tracking"/> from it. The address bar at download time
+    /// is often the wrong page (a listing or search page, not the mod's own), so this is not assumed
+    /// correct just because it was captured automatically.
+    /// </summary>
+    [ObservableProperty]
+    private string _installModPageUrlInput = string.Empty;
 
     [ObservableProperty]
     private bool _hasArchivePreview;
@@ -188,13 +202,15 @@ public partial class ModsPageViewModel : ViewModelBase
 
     /// <summary>
     /// Opens the install dialog pre-filled with a downloaded archive's path, so the browser's
-    /// "Install to Mods" prompt lands the user straight at the file-selection step.
+    /// "Install to Mods" prompt lands the user straight at the file-selection step. Returns the task
+    /// so a test can await the whole flow (preview, dialog, any supersede/rename prompts, install);
+    /// <see cref="MainViewModel"/>'s own call site still fires it and forgets, same as before.
     /// </summary>
-    public void BeginInstallFromFile(string archivePath, Uri? sourceUri = null, Uri? modPageUri = null)
+    public Task BeginInstallFromFile(string archivePath, Uri? sourceUri = null, Uri? modPageUri = null)
     {
         _pendingInstallSourceUri = sourceUri;
         _pendingInstallModPageUri = modPageUri;
-        _ = RunInstallFlowAsync(archivePath);
+        return RunInstallFlowAsync(archivePath);
     }
 
     /// <summary>Applies a mods folder chosen elsewhere (the Settings page) and reloads.</summary>
@@ -221,6 +237,14 @@ public partial class ModsPageViewModel : ViewModelBase
     /// <summary>Replaces an install's update-tracking baseline, for the Updates page.</summary>
     public Task<ArchiveInstallResult<InstallRecord>> UpdateInstallTrackingAsync(string installId, UpdateTracking tracking, CancellationToken cancellationToken = default) =>
         _modsFolderUseCase.UpdateInstallTrackingAsync(ModsFolderPath, installId, tracking, cancellationToken);
+
+    /// <summary>Finds an existing tracked install matching the pending install's site and mod key, for the "this looks like an update" prompt.</summary>
+    public Task<TrackedMod?> FindMatchingTrackedInstallAsync(ModKeyHints hints, CancellationToken cancellationToken = default) =>
+        _modsFolderUseCase.FindMatchingTrackedInstallAsync(ModsFolderPath, hints, cancellationToken);
+
+    /// <summary>Best-effort live lookup of a mod's current version, to prefill the install dialog's Version field.</summary>
+    public Task<string?> TryFetchCurrentVersionAsync(string modPageUrl, string displayName, CancellationToken cancellationToken = default) =>
+        _modsFolderUseCase.TryFetchCurrentVersionAsync(modPageUrl, displayName, cancellationToken);
 
     [RelayCommand]
     private async Task RefreshAsync()
@@ -668,6 +692,7 @@ public partial class ModsPageViewModel : ViewModelBase
 
         // Recorded even if the read fails, so a bad path isn't retried on every blur.
         _previewedPath = ArchivePathToInstall.Trim();
+        _versionFetchCts?.Cancel();
         IsBusy = true;
         HasArchivePreview = false;
         ArchivePreviewEntries.Clear();
@@ -688,10 +713,23 @@ public partial class ModsPageViewModel : ViewModelBase
             }
 
             InstallDisplayName = Path.GetFileNameWithoutExtension(ArchivePathToInstall.Trim());
+            InstallModPageUrlInput = _pendingInstallModPageUri?.ToString() ?? string.Empty;
             HasArchivePreview = true;
             InstallStatusMessage = ArchivePreviewEntries.Count(entry => entry.IsInstallable) == 0
                 ? "No installable mod files found in this archive."
                 : string.Empty;
+
+            // Best-effort: only when the URL resolves to a site we can read, and only when nothing's
+            // already typed there — a fetch must never clobber a version the user entered themselves,
+            // including one still sitting from before this preview re-ran. Fired without awaiting so
+            // the install dialog (about to be shown by the caller) doesn't sit blank for however long
+            // the site takes to respond — the field fills in underneath the user once it resolves.
+            if (!string.IsNullOrWhiteSpace(InstallModPageUrlInput) && string.IsNullOrWhiteSpace(InstallVersionInput))
+            {
+                CancellationTokenSource fetchCts = new();
+                _versionFetchCts = fetchCts;
+                _ = FetchVersionInBackgroundAsync(InstallModPageUrlInput, InstallDisplayName, fetchCts);
+            }
         }
         catch (Exception ex)
         {
@@ -701,6 +739,32 @@ public partial class ModsPageViewModel : ViewModelBase
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// The non-blocking half of <see cref="PreviewInstallAsync"/>'s live version fetch. Guards against
+    /// two ways this can go stale by the time it resolves: a newer preview or a reset cancels
+    /// <paramref name="fetchCts"/> (checked via the token before writing), and a version the user typed
+    /// in by hand while the fetch was in flight must not be clobbered (checked again here, not just at
+    /// the call site, since time has passed).
+    /// </summary>
+    private async Task FetchVersionInBackgroundAsync(string modPageUrl, string displayName, CancellationTokenSource fetchCts)
+    {
+        try
+        {
+            string? fetchedVersion = await _modsFolderUseCase.TryFetchCurrentVersionAsync(modPageUrl, displayName, fetchCts.Token);
+            if (!fetchCts.IsCancellationRequested && !string.IsNullOrWhiteSpace(fetchedVersion) && string.IsNullOrWhiteSpace(InstallVersionInput))
+            {
+                InstallVersionInput = fetchedVersion;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not fetch the current version from {ModPageUrl}", modPageUrl);
         }
     }
 
@@ -726,14 +790,26 @@ public partial class ModsPageViewModel : ViewModelBase
         {
             ModsFolderLayout layout = _modsFolderUseCase.GetLayout(ModsFolderPath.Trim());
             string provider = _pendingInstallSourceUri is null ? "manual" : "browser";
+            // ModPageUrl comes from the editable field, not the raw captured URI: the address bar at
+            // download time is frequently the wrong page (a listing or search page), and this is the
+            // URL InstallAsync resolves Tracking from — an uncorrected capture would silently track
+            // the wrong thing.
+            string? modPageUrl = string.IsNullOrWhiteSpace(InstallModPageUrlInput) ? null : InstallModPageUrlInput.Trim();
+            InstallSource source = new(provider, modPageUrl, _pendingInstallSourceUri?.ToString());
+            string? version = string.IsNullOrWhiteSpace(InstallVersionInput) ? null : InstallVersionInput.Trim();
+
+            TrackedMod? supersedeTarget = await FindSupersedeTargetAsync(source);
+            InstallRecord? supersedes = supersedeTarget is null ? null : await ConfirmSupersedeAsync(supersedeTarget);
+
             ArchiveInstallResult<InstallRecord> result = await _archiveInstallService.InstallAsync(
                 ArchivePathToInstall.Trim(),
                 selected,
                 layout,
                 InstallDisplayName.Trim(),
                 string.IsNullOrWhiteSpace(InstallCategoryInput) ? null : InstallCategoryInput.Trim(),
-                new InstallSource(provider, _pendingInstallModPageUri?.ToString(), _pendingInstallSourceUri?.ToString()),
-                version: null);
+                source,
+                version: version,
+                supersedes: supersedes);
 
             if (!result.Success)
             {
@@ -746,7 +822,9 @@ public partial class ModsPageViewModel : ViewModelBase
             int fileCount = result.Value!.Files.Count;
             ResetInstallPanel();
             await LoadFilesCoreAsync();
-            StatusMessage = $"Installed {fileCount} file(s) to \"{installed}\".";
+            StatusMessage = supersedes is not null
+                ? $"Updated \"{installed}\" ({fileCount} file(s))."
+                : $"Installed {fileCount} file(s) to \"{installed}\".";
         }
         catch (Exception ex)
         {
@@ -759,11 +837,92 @@ public partial class ModsPageViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Detects whether this pending install matches an existing tracked mod by site + mod key (not
+    /// folder name — an install's folder is often version-stamped, so consecutive versions never
+    /// collide on name even though they're the same mod). Null when there's no mod page URL, or it
+    /// doesn't resolve to a site+key this app already has an install tracked against.
+    /// </summary>
+    private Task<TrackedMod?> FindSupersedeTargetAsync(InstallSource source)
+    {
+        if (string.IsNullOrWhiteSpace(source.ModPageUrl))
+        {
+            return Task.FromResult<TrackedMod?>(null);
+        }
+
+        ModKeyHints hints = new(source.ModPageUrl, source.DownloadUrl, InstallDisplayName.Trim(), []);
+        return FindMatchingTrackedInstallAsync(hints);
+    }
+
+    /// <summary>
+    /// Asks the user to confirm before treating this install as an update to an existing mod rather
+    /// than installing it as new — never silent, since superseding deletes files. Declining returns
+    /// null, which routes the caller back to a normal fresh install. Confirming also offers the
+    /// legacy-folder rename when the existing install's on-disk folder no longer matches its display
+    /// name (a version-stamped name from before this feature existed).
+    /// </summary>
+    private async Task<InstallRecord?> ConfirmSupersedeAsync(TrackedMod matched)
+    {
+        string existingVersion = matched.Record.Tracking?.BaselineVersion ?? "an unknown version";
+
+        bool confirmedUpdate = await _dialogService.ConfirmAsync(
+            "Update existing mod?",
+            $"This looks like an update to \"{matched.DisplayName}\" (currently {existingVersion}). Update it instead of installing it separately?",
+            "Update");
+
+        if (!confirmedUpdate)
+        {
+            return null;
+        }
+
+        return await MaybeRenameLegacyFolderAsync(matched.Record, matched.DisplayName);
+    }
+
+    private async Task<InstallRecord> MaybeRenameLegacyFolderAsync(InstallRecord matchedRecord, string displayName)
+    {
+        string relativePath = matchedRecord.Files.Count > 0 ? matchedRecord.Files[0].RelativePath : string.Empty;
+        int separatorIndex = relativePath.IndexOf('/');
+        if (separatorIndex < 0)
+        {
+            // A loose file installed with no folder of its own (adopted, not installed through this
+            // app's folder-per-mod flow) — there's no folder to rename.
+            return matchedRecord;
+        }
+
+        string currentFolder = relativePath[..separatorIndex];
+        if (string.Equals(currentFolder, displayName, StringComparison.Ordinal))
+        {
+            return matchedRecord;
+        }
+
+        bool confirmedRename = await _dialogService.ConfirmAsync(
+            "Rename mod folder?",
+            $"\"{displayName}\"'s folder on disk is still named \"{currentFolder}\", from before it was tracked. Rename it to match?",
+            "Rename");
+
+        if (!confirmedRename)
+        {
+            return matchedRecord;
+        }
+
+        ArchiveInstallResult<InstallRecord> renamed = await _modsFolderUseCase.RenameInstallFolderAsync(ModsFolderPath.Trim(), matchedRecord.InstallId, displayName);
+        if (!renamed.Success)
+        {
+            _logger.LogWarning("Could not rename install {InstallId}'s folder before superseding: {Error}", matchedRecord.InstallId, renamed.Error);
+            return matchedRecord;
+        }
+
+        return renamed.Value!;
+    }
+
     private void ResetInstallPanel(bool keepSource = false)
     {
+        _versionFetchCts?.Cancel();
         ArchivePathToInstall = string.Empty;
         InstallDisplayName = string.Empty;
         InstallCategoryInput = string.Empty;
+        InstallVersionInput = string.Empty;
+        InstallModPageUrlInput = string.Empty;
         InstallStatusMessage = string.Empty;
         _previewedPath = string.Empty;
         HasArchivePreview = false;
@@ -1152,6 +1311,15 @@ public partial class ModsPageViewModel : ViewModelBase
             UpdateTracking tracking,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ArchiveInstallResult<InstallRecord>.Fail("Not available at design time."));
+
+        public Task<TrackedMod?> FindMatchingTrackedInstallAsync(
+            string modsFolderPath,
+            ModKeyHints hints,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<TrackedMod?>(null);
+
+        public Task<string?> TryFetchCurrentVersionAsync(string modPageUrl, string displayName, CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
     }
 
     private sealed class DesignTimeArchiveInstallService : IArchiveInstallService

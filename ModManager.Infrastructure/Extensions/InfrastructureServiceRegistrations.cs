@@ -29,6 +29,7 @@ public static class InfrastructureServiceRegistrations
         services.AddSingleton<IUpdateCheckStateStore, UpdateCheckStateStore>();
         services.AddSingleton<IModPageFetcher, HttpModPageFetcher>();
         services.AddSingleton<IModSiteStrategy, SacrificialSiteStrategy>();
+        services.AddSingleton<SiteTrackingResolver>();
 
         return services;
     }

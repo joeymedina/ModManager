@@ -112,4 +112,19 @@ public interface IModsFolderUseCase
         string installId,
         UpdateTracking tracking,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Finds an existing tracked install matching the same site and mod key as <paramref name="hints"/>
+    /// resolves to.
+    /// </summary>
+    Task<TrackedMod?> FindMatchingTrackedInstallAsync(
+        string modsFolderPath,
+        ModKeyHints hints,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Best-effort live lookup of a mod's current version from its page, for prefilling the install
+    /// dialog's Version field.
+    /// </summary>
+    Task<string?> TryFetchCurrentVersionAsync(string modPageUrl, string displayName, CancellationToken cancellationToken = default);
 }

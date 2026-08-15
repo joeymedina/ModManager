@@ -179,4 +179,28 @@ public sealed class ModsFolderUseCase(IModsFolderRepository repository) : IModsF
         ArgumentNullException.ThrowIfNull(tracking);
         return repository.UpdateInstallTrackingAsync(modsFolderPath, installId, tracking, cancellationToken);
     }
+
+    /// <summary>
+    /// Finds an existing tracked install matching the same site and mod key as <paramref name="hints"/>
+    /// resolves to.
+    /// </summary>
+    public Task<TrackedMod?> FindMatchingTrackedInstallAsync(
+        string modsFolderPath,
+        ModKeyHints hints,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modsFolderPath);
+        ArgumentNullException.ThrowIfNull(hints);
+        return repository.FindMatchingTrackedInstallAsync(modsFolderPath, hints, cancellationToken);
+    }
+
+    /// <summary>
+    /// Best-effort live lookup of a mod's current version from its page.
+    /// </summary>
+    public Task<string?> TryFetchCurrentVersionAsync(string modPageUrl, string displayName, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modPageUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
+        return repository.TryFetchCurrentVersionAsync(modPageUrl, displayName, cancellationToken);
+    }
 }

@@ -169,7 +169,7 @@ public sealed class ModsFolderServiceTests
             "sacrificialmods.com",
             [],
             resolveModKey: hints => new SiteModKey("ZombieApocalypseDownload"));
-        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), new ModsManifestService(), [strategy]);
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), new ModsManifestService(), new SiteTrackingResolver([strategy]));
 
         ArchiveInstallResult<InstallRecord> result = await service.AdoptAsync(
             modsFolderPath, ["Loose.package"], "Zombie Apocalypse", "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", "2.3.1", CancellationToken.None);
@@ -188,7 +188,7 @@ public sealed class ModsFolderServiceTests
     {
         CreateFile(modsFolderPath, "Loose.package");
         var strategy = new StubModSiteStrategy("sacrificialmods.com", [], resolveModKey: _ => null);
-        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), new ModsManifestService(), [strategy]);
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), new ModsManifestService(), new SiteTrackingResolver([strategy]));
 
         ArchiveInstallResult<InstallRecord> result = await service.AdoptAsync(
             modsFolderPath, ["Loose.package"], "Zombie Apocalypse", "https://sacrificialmods.com/downloads.html", null, CancellationToken.None);
@@ -203,7 +203,7 @@ public sealed class ModsFolderServiceTests
     {
         CreateFile(modsFolderPath, "Loose.package");
         var strategy = new StubModSiteStrategy("sacrificialmods.com", []);
-        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), new ModsManifestService(), [strategy]);
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), new ModsManifestService(), new SiteTrackingResolver([strategy]));
 
         ArchiveInstallResult<InstallRecord> result = await service.AdoptAsync(
             modsFolderPath, ["Loose.package"], "Some Other Mod", "https://example.com/mod", null, CancellationToken.None);
@@ -228,7 +228,7 @@ public sealed class ModsFolderServiceTests
     {
         CreateFile(modsFolderPath, "Loose.package");
         var manifestService = new ModsManifestService();
-        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), manifestService);
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), manifestService, new SiteTrackingResolver([]));
 
         ArchiveInstallResult<InstallRecord> first = await service.AdoptAsync(
             modsFolderPath, ["Loose.package"], "My Mod", "https://example.com/wrong-page", "1.0", CancellationToken.None);
@@ -250,7 +250,7 @@ public sealed class ModsFolderServiceTests
     {
         CreateFile(modsFolderPath, "Loose.package");
         var manifestService = new ModsManifestService();
-        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), manifestService);
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), manifestService, new SiteTrackingResolver([]));
 
         await service.SetCategoryAsync(modsFolderPath, ["Loose.package"], "Gameplay", CancellationToken.None);
         await service.AddToGroupAsync(modsFolderPath, ["Loose.package"], "My Group", CancellationToken.None);
@@ -272,7 +272,7 @@ public sealed class ModsFolderServiceTests
         CreateFile(modsFolderPath, "A.package");
         CreateFile(modsFolderPath, "B.package");
         var manifestService = new ModsManifestService();
-        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), manifestService);
+        var service = new ModsFolderService(new ModsFolderPathService(), new ModsDiscoveryService(), new ModsFileOperationsService(new ModsFolderPathService()), manifestService, new SiteTrackingResolver([]));
 
         await service.AdoptAsync(modsFolderPath, ["A.package", "B.package"], "Combined Mod", null, "1.0", CancellationToken.None);
         await service.AdoptAsync(modsFolderPath, ["A.package"], "Just A", null, "1.1", CancellationToken.None);
@@ -540,7 +540,7 @@ public sealed class ModsFolderServiceTests
     public async Task RenameInstallFolderAsync_WhenCalled_ThenMovesTheFolderAndRewritesRecordPaths()
     {
         var manifestService = new ModsManifestService();
-        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
         var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
 
         string barePath = Path.Combine(sandboxPath, "loose.package");
@@ -563,7 +563,7 @@ public sealed class ModsFolderServiceTests
     public async Task RenameInstallFolderAsync_WhenCalled_ThenRewritesManifestEntryAndGroupMembership()
     {
         var manifestService = new ModsManifestService();
-        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
         var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
 
         string barePath = Path.Combine(sandboxPath, "loose.package");
@@ -591,7 +591,7 @@ public sealed class ModsFolderServiceTests
         Directory.CreateDirectory(Path.Combine(modsFolderPath, "Zombie Apocalypse"));
 
         var manifestService = new ModsManifestService();
-        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
         var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
 
         string barePath = Path.Combine(sandboxPath, "loose.package");
@@ -623,7 +623,7 @@ public sealed class ModsFolderServiceTests
     public async Task RenameInstallFolderAsync_WhenAlreadyNamedAsRequested_ThenIsANoOp()
     {
         var manifestService = new ModsManifestService();
-        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
         var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
 
         string barePath = Path.Combine(sandboxPath, "loose.package");
@@ -643,7 +643,7 @@ public sealed class ModsFolderServiceTests
     public async Task RenameInstallFolderAsync_WhenModIsDisabled_ThenRenamesUnderTheDisabledRoot()
     {
         var manifestService = new ModsManifestService();
-        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
         var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
 
         string barePath = Path.Combine(sandboxPath, "loose.package");
@@ -669,7 +669,7 @@ public sealed class ModsFolderServiceTests
     public async Task UpdateInstallTrackingAsync_WhenInstallExists_ThenReplacesItsTracking()
     {
         var manifestService = new ModsManifestService();
-        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
         var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
 
         string barePath = Path.Combine(sandboxPath, "loose.package");
@@ -693,7 +693,7 @@ public sealed class ModsFolderServiceTests
     public async Task UpdateInstallTrackingAsync_WhenCalledTwice_ThenSecondCallReplacesTheFirstRatherThanDuplicatingTheRecord()
     {
         var manifestService = new ModsManifestService();
-        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()));
+        var archiveService = new ArchiveInstallService(manifestService, new ModsFileOperationsService(new ModsFolderPathService()), new SiteTrackingResolver([]));
         var layout = new ModsFolderLayout(modsFolderPath, disabledFolderPath);
 
         string barePath = Path.Combine(sandboxPath, "loose.package");

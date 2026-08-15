@@ -149,8 +149,11 @@ public partial class UpdatesPageViewModel : ViewModelBase
     /// A key <see cref="IModSiteUpdateService"/> resolves this check (see
     /// <see cref="SiteUpdateCheckResult.ResolvedModKey"/>) is reported back, not written back — the
     /// service stays manifest-write-free like the strategies it calls, so the caller persists it.
+    /// Updates <paramref name="trackedMods"/> in place on a successful save so <see cref="RebuildRows"/>,
+    /// called right after with this same list, doesn't build a row from the pre-resolution record —
+    /// otherwise a same-cycle "mark as current" would write the stale key back over the one just saved.
     /// </summary>
-    private async Task PersistNewlyResolvedKeysAsync(IReadOnlyList<TrackedMod> trackedMods, IReadOnlyList<SiteUpdateCheckResult> results)
+    private async Task PersistNewlyResolvedKeysAsync(List<TrackedMod> trackedMods, IReadOnlyList<SiteUpdateCheckResult> results)
     {
         foreach (SiteUpdateCheckResult result in results)
         {
@@ -159,15 +162,20 @@ public partial class UpdatesPageViewModel : ViewModelBase
                 continue;
             }
 
-            TrackedMod? mod = trackedMods.FirstOrDefault(candidate => candidate.Record.InstallId == result.InstallId);
-            if (mod is null)
+            int index = trackedMods.FindIndex(candidate => candidate.Record.InstallId == result.InstallId);
+            if (index < 0)
             {
                 continue;
             }
 
+            TrackedMod mod = trackedMods[index];
             UpdateTracking updated = mod.Record.Tracking! with { SiteModKey = resolvedKey.Value };
             ArchiveInstallResult<InstallRecord> saveResult = await _mods.UpdateInstallTrackingAsync(mod.Record.InstallId, updated);
-            if (!saveResult.Success)
+            if (saveResult.Success)
+            {
+                trackedMods[index] = mod with { Record = mod.Record with { Tracking = updated } };
+            }
+            else
             {
                 _logger.LogWarning("Could not persist resolved mod key for install {InstallId}: {Error}", mod.Record.InstallId, saveResult.Error);
             }

@@ -595,4 +595,298 @@ public sealed class ModsPageViewModelTests
 
         Assert.IsFalse(raised);
     }
+
+    // --- ConfirmInstallAsync: supersede + legacy-rename prompts ------------
+
+    private static ArchiveInstallResult<ArchivePreview> CreateSingleFilePreview(string entryName = "Main.package") =>
+        ArchiveInstallResult<ArchivePreview>.Ok(new ArchivePreview([new ArchiveEntryPreview(entryName, ArchiveEntryKind.Installable, SelectedByDefault: true)]));
+
+    private static InstallRecord CreateMatchedRecord(string installId, string folderName, string version) =>
+        new(
+            installId,
+            new InstallSource("browser", "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", null),
+            version,
+            DateTime.UtcNow,
+            null,
+            [new InstallRecordFile($"{folderName}/Main.package", "abc", 1)],
+            [],
+            new UpdateTracking("sacrificialmods.com", "ZombieApocalypseDownload", "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", version, null, DateTime.UtcNow));
+
+    [TestMethod]
+    public async Task BeginInstallFromFile_WhenAMatchingTrackedInstallExistsAndUpdateIsConfirmed_ThenInstallsWithSupersedes()
+    {
+        InstallRecord matched = CreateMatchedRecord("install-1", "Zombie Apocalypse", "2.3.1");
+        Uri modPageUri = new("https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload");
+
+        archiveInstallServiceMock
+            .Setup(service => service.PreviewAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSingleFilePreview());
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.LoadManifestAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ModsManifest.Empty with
+            {
+                Installs = [matched],
+                Files = [new ManifestFileEntry(matched.Files[0].RelativePath, "Zombie Apocalypse")]
+            });
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.FindMatchingTrackedInstallAsync(It.IsAny<string>(), It.IsAny<ModKeyHints>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TrackedMod(matched, "Zombie Apocalypse"));
+        dialogServiceMock
+            .Setup(service => service.ShowAsync(It.IsAny<string>(), AppDialog.Install, It.IsAny<object>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        dialogServiceMock
+            .Setup(service => service.ConfirmAsync("Update existing mod?", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
+            .ReturnsAsync(true);
+        dialogServiceMock
+            .Setup(service => service.ConfirmAsync("Rename mod folder?", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
+            .ReturnsAsync(false);
+        archiveInstallServiceMock
+            .Setup(service => service.InstallAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<ModsFolderLayout>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<InstallSource>(), It.IsAny<string?>(), It.IsAny<InstallRecord?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ArchiveInstallResult<InstallRecord>.Ok(matched));
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        await viewModel.BeginInstallFromFile("C:/Downloads/archive.zip", null, modPageUri);
+
+        archiveInstallServiceMock.Verify(
+            service => service.InstallAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<ModsFolderLayout>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<InstallSource>(), It.IsAny<string?>(), matched, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task BeginInstallFromFile_WhenAMatchingTrackedInstallExistsButUpdateIsDeclined_ThenInstallsAsNew()
+    {
+        InstallRecord matched = CreateMatchedRecord("install-1", "Zombie Apocalypse", "2.3.1");
+        Uri modPageUri = new("https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload");
+
+        archiveInstallServiceMock
+            .Setup(service => service.PreviewAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSingleFilePreview());
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.LoadManifestAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ModsManifest.Empty with { Installs = [matched] });
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.FindMatchingTrackedInstallAsync(It.IsAny<string>(), It.IsAny<ModKeyHints>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TrackedMod(matched, "Zombie Apocalypse"));
+        dialogServiceMock
+            .Setup(service => service.ShowAsync(It.IsAny<string>(), AppDialog.Install, It.IsAny<object>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        dialogServiceMock
+            .Setup(service => service.ConfirmAsync("Update existing mod?", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
+            .ReturnsAsync(false);
+        archiveInstallServiceMock
+            .Setup(service => service.InstallAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<ModsFolderLayout>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<InstallSource>(), It.IsAny<string?>(), It.IsAny<InstallRecord?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ArchiveInstallResult<InstallRecord>.Ok(matched));
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        await viewModel.BeginInstallFromFile("C:/Downloads/archive.zip", null, modPageUri);
+
+        archiveInstallServiceMock.Verify(
+            service => service.InstallAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<ModsFolderLayout>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<InstallSource>(), It.IsAny<string?>(), null, It.IsAny<CancellationToken>()),
+            Times.Once);
+        dialogServiceMock.Verify(service => service.ConfirmAsync("Rename mod folder?", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task BeginInstallFromFile_WhenNoMatchingTrackedInstallExists_ThenInstallsAsNewWithoutPrompting()
+    {
+        archiveInstallServiceMock
+            .Setup(service => service.PreviewAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSingleFilePreview());
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.FindMatchingTrackedInstallAsync(It.IsAny<string>(), It.IsAny<ModKeyHints>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TrackedMod?)null);
+        dialogServiceMock
+            .Setup(service => service.ShowAsync(It.IsAny<string>(), AppDialog.Install, It.IsAny<object>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        archiveInstallServiceMock
+            .Setup(service => service.InstallAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<ModsFolderLayout>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<InstallSource>(), It.IsAny<string?>(), It.IsAny<InstallRecord?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ArchiveInstallResult<InstallRecord>.Ok(CreateMatchedRecord("install-2", "New Mod", "1.0")));
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        await viewModel.BeginInstallFromFile("C:/Downloads/archive.zip", null, new Uri("https://example.com/mod"));
+
+        dialogServiceMock.Verify(service => service.ConfirmAsync("Update existing mod?", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        archiveInstallServiceMock.Verify(
+            service => service.InstallAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<ModsFolderLayout>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<InstallSource>(), It.IsAny<string?>(), null, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    // --- ConfirmInstallAsync: install-dialog version/mod-page-URL fields ---
+
+    [TestMethod]
+    public async Task PreviewInstallAsync_WhenABrowserDownloadCapturedAModPageUrl_ThenPrefillsInstallModPageUrlInput()
+    {
+        archiveInstallServiceMock
+            .Setup(service => service.PreviewAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSingleFilePreview());
+
+        // Captured the instant the (mocked) dialog is about to show — this is what the user would
+        // actually see in the field, before either outcome (confirm or cancel) resets the panel.
+        string? prefilledValue = null;
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        dialogServiceMock
+            .Setup(service => service.ShowAsync(It.IsAny<string>(), AppDialog.Install, It.IsAny<object>(), It.IsAny<string>()))
+            .Returns(() =>
+            {
+                prefilledValue = viewModel.InstallModPageUrlInput;
+                return Task.FromResult(false);
+            });
+
+        await viewModel.BeginInstallFromFile("C:/Downloads/archive.zip", null, new Uri("https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload"));
+
+        Assert.AreEqual("https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", prefilledValue);
+    }
+
+    [TestMethod]
+    public async Task PreviewInstallAsync_WhenTheModPageUrlResolvesAndVersionIsEmpty_ThenPrefillsTheFetchedVersion()
+    {
+        archiveInstallServiceMock
+            .Setup(service => service.PreviewAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSingleFilePreview());
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.TryFetchCurrentVersionAsync(
+                "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("2.3.1");
+
+        string? versionAtDialogTime = null;
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        dialogServiceMock
+            .Setup(service => service.ShowAsync(It.IsAny<string>(), AppDialog.Install, It.IsAny<object>(), It.IsAny<string>()))
+            .Returns(() =>
+            {
+                versionAtDialogTime = viewModel.InstallVersionInput;
+                return Task.FromResult(false);
+            });
+
+        await viewModel.BeginInstallFromFile("C:/Downloads/archive.zip", null, new Uri("https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload"));
+
+        Assert.AreEqual("2.3.1", versionAtDialogTime);
+    }
+
+    [TestMethod]
+    public async Task PreviewInstallAsync_WhenTheDialogIsAlreadyOpenAndAVersionIsTyped_ThenReRunningPreviewDoesNotOverwriteIt()
+    {
+        // Models editing the archive path (or re-Browsing) while the install dialog is already open —
+        // PreviewIfPathChangedAsync and BrowseForArchiveAsync both call PreviewInstallAsync directly,
+        // without going through RunInstallFlowAsync's reset (that reset only makes sense at the start
+        // of a brand-new install session, e.g. from BeginInstallFromFile, where there's nothing yet to
+        // preserve). A version the user already typed for this session must survive a re-preview.
+        archiveInstallServiceMock
+            .Setup(service => service.PreviewAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSingleFilePreview());
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.TryFetchCurrentVersionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("2.3.2");
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        viewModel.ArchivePathToInstall = "C:/Downloads/archive.zip";
+        viewModel.InstallModPageUrlInput = "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload";
+        viewModel.InstallVersionInput = "2.3.1-beta";
+
+        await viewModel.PreviewInstallCommand.ExecuteAsync(null);
+
+        Assert.AreEqual("2.3.1-beta", viewModel.InstallVersionInput);
+    }
+
+    [TestMethod]
+    public async Task PreviewInstallAsync_WhenNoModPageUrlWasCaptured_ThenDoesNotAttemptAFetch()
+    {
+        archiveInstallServiceMock
+            .Setup(service => service.PreviewAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSingleFilePreview());
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        dialogServiceMock
+            .Setup(service => service.ShowAsync(It.IsAny<string>(), AppDialog.Install, It.IsAny<object>(), It.IsAny<string>()))
+            .ReturnsAsync(false);
+
+        await viewModel.BeginInstallFromFile("C:/Downloads/archive.zip");
+
+        modsFolderUseCaseMock.Verify(
+            useCase => useCase.TryFetchCurrentVersionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        Assert.AreEqual(string.Empty, viewModel.InstallVersionInput);
+    }
+
+    [TestMethod]
+    public async Task ConfirmInstallAsync_WhenAVersionIsTyped_ThenPassesItToInstallAsync()
+    {
+        archiveInstallServiceMock
+            .Setup(service => service.PreviewAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSingleFilePreview());
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.FindMatchingTrackedInstallAsync(It.IsAny<string>(), It.IsAny<ModKeyHints>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TrackedMod?)null);
+        archiveInstallServiceMock
+            .Setup(service => service.InstallAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<ModsFolderLayout>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<InstallSource>(), It.IsAny<string?>(), It.IsAny<InstallRecord?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ArchiveInstallResult<InstallRecord>.Ok(CreateMatchedRecord("install-2", "New Mod", "2.3.1")));
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        dialogServiceMock
+            .Setup(service => service.ShowAsync(It.IsAny<string>(), AppDialog.Install, It.IsAny<object>(), It.IsAny<string>()))
+            .Returns(() =>
+            {
+                // Models the user typing into the dialog's bound TextBox while it's open, before
+                // clicking "Install" — which is what makes ShowAsync return true.
+                viewModel.InstallVersionInput = "2.3.1";
+                return Task.FromResult(true);
+            });
+
+        await viewModel.BeginInstallFromFile("C:/Downloads/archive.zip");
+
+        archiveInstallServiceMock.Verify(
+            service => service.InstallAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<ModsFolderLayout>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<InstallSource>(), "2.3.1", It.IsAny<InstallRecord?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ConfirmInstallAsync_WhenTheCapturedModPageUrlIsEdited_ThenUsesTheEditedValueNotTheCapturedOne()
+    {
+        archiveInstallServiceMock
+            .Setup(service => service.PreviewAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateSingleFilePreview());
+        modsFolderUseCaseMock
+            .Setup(useCase => useCase.FindMatchingTrackedInstallAsync(It.IsAny<string>(), It.IsAny<ModKeyHints>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TrackedMod?)null);
+        archiveInstallServiceMock
+            .Setup(service => service.InstallAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<ModsFolderLayout>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<InstallSource>(), It.IsAny<string?>(), It.IsAny<InstallRecord?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ArchiveInstallResult<InstallRecord>.Ok(CreateMatchedRecord("install-2", "New Mod", "1.0")));
+
+        ModsPageViewModel viewModel = CreateViewModel("C:/Mods");
+        dialogServiceMock
+            .Setup(service => service.ShowAsync(It.IsAny<string>(), AppDialog.Install, It.IsAny<object>(), It.IsAny<string>()))
+            .Returns(() =>
+            {
+                // The captured URL (a search-results page) was wrong; the user corrects it before confirming.
+                viewModel.InstallModPageUrlInput = "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload";
+                return Task.FromResult(true);
+            });
+
+        await viewModel.BeginInstallFromFile("C:/Downloads/archive.zip", null, new Uri("https://sacrificialmods.com/search?q=zombie"));
+
+        archiveInstallServiceMock.Verify(
+            service => service.InstallAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<ModsFolderLayout>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.Is<InstallSource>(source => source.ModPageUrl == "https://sacrificialmods.com/downloads.html#ZombieApocalypseDownload"),
+                It.IsAny<string?>(), It.IsAny<InstallRecord?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
 }

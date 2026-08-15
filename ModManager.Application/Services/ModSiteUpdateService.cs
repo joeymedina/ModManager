@@ -26,14 +26,13 @@ public sealed class ModSiteUpdateService(
         ArgumentNullException.ThrowIfNull(trackedMods);
 
         DateTime checkedUtc = DateTime.UtcNow;
-        List<SiteUpdateCheckResult> results = [];
 
-        foreach (IGrouping<string, TrackedMod> siteGroup in trackedMods
+        IReadOnlyList<SiteUpdateCheckResult>[] perSiteResults = await Task.WhenAll(trackedMods
             .Where(mod => mod.Record.Tracking is not null)
-            .GroupBy(mod => mod.Record.Tracking!.SiteKey, StringComparer.OrdinalIgnoreCase))
-        {
-            results.AddRange(await CheckSiteAsync(siteGroup.Key, [.. siteGroup], checkedUtc, cancellationToken));
-        }
+            .GroupBy(mod => mod.Record.Tracking!.SiteKey, StringComparer.OrdinalIgnoreCase)
+            .Select(siteGroup => CheckSiteAsync(siteGroup.Key, [.. siteGroup], checkedUtc, cancellationToken)));
+
+        List<SiteUpdateCheckResult> results = [.. perSiteResults.SelectMany(siteResults => siteResults)];
 
         await PersistCheckStateAsync(results, checkedUtc, cancellationToken);
         return results;
